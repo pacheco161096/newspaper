@@ -1,0 +1,18 @@
+{
+  "collectionName": "components_editorial_facebook_publications",
+  "info": {
+    "displayName": "Publicación de Facebook"
+  },
+  "attributes": {
+    "message": { "type": "text", "required": true },
+    "firstComment": { "type": "text" },
+    "zernioPostId": { "type": "string" },
+    "status": {
+      "type": "enumeration",
+      "enum": ["pending", "sent", "failed"],
+      "default": "pending",
+      "required": true
+    },
+    "sentAt": { "type": "datetime" }
+  }
+}

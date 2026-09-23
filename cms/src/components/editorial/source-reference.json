@@ -1,0 +1,14 @@
+{
+  "collectionName": "components_editorial_source_references",
+  "info": {
+    "displayName": "Referencia de fuente",
+    "description": "Trazabilidad interna; no contiene atribución de autoría de Hola Vallarta"
+  },
+  "attributes": {
+    "sourceName": { "type": "string", "required": true },
+    "sourceUrl": { "type": "string", "required": true },
+    "sourcePublishedAt": { "type": "datetime" },
+    "documentFingerprint": { "type": "string", "required": true },
+    "factsUsed": { "type": "text" }
+  }
+}

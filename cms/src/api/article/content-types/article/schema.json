@@ -1,0 +1,35 @@
+{
+  "kind": "collectionType",
+  "collectionName": "articles",
+  "info": {
+    "singularName": "article",
+    "pluralName": "articles",
+    "displayName": "Noticia",
+    "description": "Producto editorial publicado por Hola Vallarta"
+  },
+  "options": { "draftAndPublish": false },
+  "attributes": {
+    "title": { "type": "string", "required": true, "maxLength": 180 },
+    "slug": { "type": "uid", "targetField": "title", "required": true },
+    "summary": { "type": "text", "required": true, "maxLength": 500 },
+    "body": { "type": "blocks", "required": true },
+    "eventId": { "type": "string", "required": true, "unique": true, "private": true },
+    "storyState": {
+      "type": "enumeration",
+      "enum": ["developing", "complete", "corrected"],
+      "default": "complete",
+      "required": true
+    },
+    "isBreaking": { "type": "boolean", "default": false },
+    "importance": { "type": "integer", "default": 50, "min": 0, "max": 100 },
+    "originalPublishedAt": { "type": "datetime", "required": true },
+    "lastEditorialUpdateAt": { "type": "datetime", "required": true },
+    "heroImage": { "type": "media", "multiple": false, "required": false, "allowedTypes": ["images"] },
+    "imageAlt": { "type": "string", "maxLength": 180 },
+    "imageCredit": { "type": "string", "maxLength": 180 },
+    "category": { "type": "relation", "relation": "manyToOne", "target": "api::category.category", "inversedBy": "articles", "required": true },
+    "seo": { "type": "component", "component": "shared.seo", "repeatable": false, "required": true },
+    "sourceReferences": { "type": "component", "component": "editorial.source-reference", "repeatable": true, "required": true, "private": true },
+    "facebookPublication": { "type": "component", "component": "editorial.facebook-publication", "repeatable": false, "required": true, "private": true }
+  }
+}

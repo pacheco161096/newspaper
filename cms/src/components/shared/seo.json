@@ -1,0 +1,14 @@
+{
+  "collectionName": "components_shared_seos",
+  "info": {
+    "displayName": "SEO",
+    "description": "Metadatos de búsqueda y redes"
+  },
+  "attributes": {
+    "metaTitle": { "type": "string", "required": true, "maxLength": 70 },
+    "metaDescription": { "type": "text", "required": true, "maxLength": 170 },
+    "canonicalPath": { "type": "string", "required": true },
+    "keywords": { "type": "json" },
+    "noIndex": { "type": "boolean", "default": false }
+  }
+}
