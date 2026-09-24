@@ -45,12 +45,12 @@ export const sources: Record<SourceKey, SourceDefinition> = {
     feeds: [
       'https://www.eluniversal.com.mx/arc/outboundfeeds/news/?outputType=xml',
     ],
-    dailyLimit: 10, prefilter: 'national-relevant', discoveryLimit: 100,
+    dailyLimit: 5, prefilter: 'national-relevant', discoveryLimit: 40,
   },
   record: {
     key: 'record', label: 'Récord', adapter: 'news-sitemap',
     feeds: ['https://www.record.com.mx/sitemap-news-latest.xml'],
-    dailyLimit: 15, prefilter: 'all', hydrateArticlePages: true, discoveryLimit: 18,
+    dailyLimit: 5, prefilter: 'all', hydrateArticlePages: true, discoveryLimit: 8,
   },
   notiespacio_pv: {
     key: 'notiespacio_pv', label: 'Notiespacio PV', adapter: 'wordpress',

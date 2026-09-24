@@ -1,4 +1,4 @@
-import { discoverSource } from '../../../../lib/pipeline/discovery';
+import { discoverSource, newestFirst } from '../../../../lib/pipeline/discovery';
 import { countDocumentsToday, findExistingExternalIds, finishIngestionRun, startIngestionRun, storeDocuments } from '../../../../lib/pipeline/repository';
 import { isSourceKey, sources } from '../../../../lib/pipeline/sources';
 import { isAuthorizedCron } from '../../../../lib/server/cron-auth';
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     try {
       if (dryRun) {
         const result = await discoverSource(source);
-        const selectedDocuments = source.dailyLimit ? result.documents.slice(0, source.dailyLimit) : result.documents;
+        const selectedDocuments = source.dailyLimit ? newestFirst(result.documents).slice(0, source.dailyLimit) : newestFirst(result.documents);
         output.push({ source: source.key, dryRun: true, fetched: result.fetched, eligible: result.accepted, accepted: selectedDocuments.length, rejectedByPrefilter: result.rejectedByPrefilter, sample: selectedDocuments.slice(0, 3).map(({ rawTitle, sourceUrl, sourcePublishedAt }) => ({ rawTitle, sourceUrl, sourcePublishedAt })) });
         continue;
       }
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       const result = await discoverSource(source);
       const existingIds = await findExistingExternalIds(source.key, result.documents.map((document) => document.externalId));
       const existingDocuments = result.documents.filter((document) => existingIds.has(document.externalId));
-      const newDocuments = result.documents.filter((document) => !existingIds.has(document.externalId));
+      const newDocuments = newestFirst(result.documents.filter((document) => !existingIds.has(document.externalId)));
       const alreadyStoredToday = source.dailyLimit ? await countDocumentsToday(source.key) : 0;
       const remainingToday = source.dailyLimit ? Math.max(0, source.dailyLimit - alreadyStoredToday) : newDocuments.length;
       const acceptedNewDocuments = source.dailyLimit ? newDocuments.slice(0, remainingToday) : newDocuments;

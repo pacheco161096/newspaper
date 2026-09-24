@@ -20,8 +20,8 @@ Todos cada **30 minutos**.
 | --- | --- | --- | --- |
 | HV descubrir Noticias PV | `/api/cron/discover?source=noticias_pv` | :00 y :30 | Notas locales |
 | HV descubrir Notiespacio PV | `/api/cron/discover?source=notiespacio_pv` | :00 y :30 | Locales (categorías de bahía) |
-| HV descubrir El Universal | `/api/cron/discover?source=el_universal` | :00 y :30 | Nacional; máx. 10/día |
-| HV descubrir Récord | `/api/cron/discover?source=record` | :00 y :30 | Deporte; máx. 15/día |
+| HV descubrir El Universal | `/api/cron/discover?source=el_universal` | :00 y :30 | Nacional; máx. 5/día, las más nuevas |
+| HV descubrir Récord | `/api/cron/discover?source=record` | :00 y :30 | Deporte; máx. 5/día, las más nuevas |
 | HV clasificar cola | `/api/cron/classify` | cada **15 min** | Noticia / publicidad / irrelevante |
 | HV resolver eventos | `/api/cron/resolve` | cada **15 min** | Nuevo, duplicado o complemento |
 | HV redacción editorial | `/api/cron/editorial` | cada **15 min** | Redacta hasta 4 notas en paralelo |

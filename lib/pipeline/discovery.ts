@@ -201,7 +201,7 @@ async function discoverNewsSitemap(source: RssSource): Promise<DiscoveredDocumen
       } satisfies DiscoveredDocument];
     });
   }));
-  const documents = [...new Map(results.flat().map((item) => [item.fingerprint, item])).values()]
+  const documents = newestFirst([...new Map(results.flat().map((item) => [item.fingerprint, item])).values()])
     .slice(0, source.discoveryLimit ?? 100);
   if (!source.hydrateArticlePages) return documents;
 
@@ -272,12 +272,22 @@ async function hydrateArticlePage(source: RssSource, document: DiscoveredDocumen
   };
 }
 
+function publishedAtMs(document: DiscoveredDocument) {
+  const value = document.sourcePublishedAt ?? document.sourceModifiedAt;
+  const time = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+export function newestFirst(documents: DiscoveredDocument[]) {
+  return [...documents].sort((left, right) => publishedAtMs(right) - publishedAtMs(left));
+}
+
 export async function discoverSource(source: SourceDefinition): Promise<DiscoveryResult> {
   const found = source.adapter === 'wordpress'
     ? await discoverWordPress(source)
     : source.adapter === 'news-sitemap'
       ? await discoverNewsSitemap(source)
       : await discoverRss(source);
-  const accepted = found.filter((item) => accept(source, item.rawTitle, item.rawExcerpt));
+  const accepted = newestFirst(found.filter((item) => accept(source, item.rawTitle, item.rawExcerpt)));
   return { sourceKey: source.key, fetched: found.length, accepted: accepted.length, rejectedByPrefilter: found.length - accepted.length, documents: accepted };
 }

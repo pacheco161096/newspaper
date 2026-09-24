@@ -62,9 +62,9 @@ Cron → descubrir → guardar fuente → clasificar → resolver evento/duplica
 | --- | --- | --- | --- |
 | Noticias PV | WordPress REST | Activa | Local |
 | Notiespacio PV | WordPress REST | Activa | Solo categorías de bahía; duplicados vs otras locales |
-| El Universal | Sitemap Google News | Activa | Máx. 10 nuevas/día; cuerpo a menudo vacío (sin hidratar) |
+| El Universal | Sitemap Google News | Activa | Máx. 5 nuevas/día (las más nuevas); cuerpo a menudo vacío (sin hidratar) |
 | Tribuna de la Bahía | `news-sitemap.xml` | Pausada | HTTP 403; no se evasará |
-| Récord | sitemap + HTML público | Activa | Tope 15/día deporte |
+| Récord | sitemap + HTML público | Activa | Tope 5/día deporte, las más nuevas primero |
 
 Duplicados: `(source_key, external_id)` + resolver por titular (más estricto entre fuentes locales). Duplicado no se redacta.
 
