@@ -278,8 +278,21 @@ function publishedAtMs(document: DiscoveredDocument) {
   return Number.isFinite(time) ? time : 0;
 }
 
+function mexicoCityDay(value: string | null) {
+  if (!value) return '';
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(time));
+}
+
 export function newestFirst(documents: DiscoveredDocument[]) {
-  return [...documents].sort((left, right) => publishedAtMs(right) - publishedAtMs(left));
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  return [...documents].sort((left, right) => {
+    const leftToday = mexicoCityDay(left.sourcePublishedAt ?? left.sourceModifiedAt) === today ? 0 : 1;
+    const rightToday = mexicoCityDay(right.sourcePublishedAt ?? right.sourceModifiedAt) === today ? 0 : 1;
+    if (leftToday !== rightToday) return leftToday - rightToday;
+    return publishedAtMs(right) - publishedAtMs(left);
+  });
 }
 
 export async function discoverSource(source: SourceDefinition): Promise<DiscoveryResult> {

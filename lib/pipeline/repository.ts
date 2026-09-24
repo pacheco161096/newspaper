@@ -1,7 +1,7 @@
 import { getPostgresPool } from '../server/postgres';
 import type { ClassificationResult } from './classify';
 import type { DiscoveredDocument, SourceKey } from './types';
-import { LOCAL_SOURCE_PRIORITY_SQL } from './sources';
+import { CRON_SOURCE_ORDER_SQL } from './sources';
 
 export async function startIngestionRun(sourceKey: SourceKey) {
   const result = await getPostgresPool().query<{ id: string }>(
@@ -87,7 +87,7 @@ export async function claimDocumentsForClassification(workerId: string, limit = 
        select id from pipeline.source_documents
         where (pipeline_status = 'discovered' and next_attempt_at <= now())
            or (pipeline_status = 'processing' and locked_at < now() - interval '15 minutes')
-        order by ${LOCAL_SOURCE_PRIORITY_SQL}, coalesce(source_published_at, discovered_at) desc nulls last
+        order by ${CRON_SOURCE_ORDER_SQL}
         for update skip locked
         limit $2
      )
@@ -150,7 +150,7 @@ export async function claimDocumentsForResolution(workerId: string, limit = 8): 
           and classification_label = 'news'
           and next_attempt_at <= now()
           and (locked_at is null or locked_at < now() - interval '15 minutes')
-        order by ${LOCAL_SOURCE_PRIORITY_SQL}, coalesce(source_published_at, discovered_at) desc nulls last, classified_at desc nulls last
+        order by ${CRON_SOURCE_ORDER_SQL}, classified_at desc nulls last
         for update skip locked
         limit $2
      )
@@ -284,7 +284,7 @@ export async function claimDocumentsForEditorial(workerId: string, limit = 1): P
           and next_attempt_at <= now()
           and (locked_at is null or locked_at < now() - interval '15 minutes')
           and length(trim(raw_content)) >= 180
-        order by ${LOCAL_SOURCE_PRIORITY_SQL}, coalesce(source_published_at, discovered_at) desc nulls last
+        order by ${CRON_SOURCE_ORDER_SQL}
         for update skip locked
         limit $2
      )
@@ -361,7 +361,7 @@ export async function getPipelineQueueSnapshot(limit = 80) {
     }>(
       `select id, source_key, raw_title, pipeline_status, editorial_status, resolution_kind, last_error, source_published_at
          from pipeline.source_documents
-        order by ${LOCAL_SOURCE_PRIORITY_SQL}, coalesce(source_published_at, discovered_at) desc nulls last
+        order by ${CRON_SOURCE_ORDER_SQL}
         limit $1`,
       [Math.min(Math.max(limit, 1), 200)],
     ),

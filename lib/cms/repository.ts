@@ -1,6 +1,6 @@
 import { getPostgresPool } from '../server/postgres';
 import type { ArticleInput, ArticleStatus, CmsArticle, CmsAuthor } from './types';
-import { LOCAL_ARTICLE_PRIORITY_SQL, LOCAL_FACEBOOK_PRIORITY_SQL } from '../pipeline/sources';
+import { CRON_FACEBOOK_ORDER_SQL, LOCAL_ARTICLE_PRIORITY_SQL } from '../pipeline/sources';
 
 type ArticleRow = {
   id: string; slug: string; category: CmsArticle['category']; title: string; summary: string;
@@ -234,7 +234,7 @@ export async function listFacebookQueue(limit = 4) {
         and facebook_status in ('pending', 'failed')
         and facebook_next_attempt_at <= now()
         and coalesce(trim(facebook_excerpt), trim(summary), '') <> ''
-      order by ${LOCAL_FACEBOOK_PRIORITY_SQL}, published_at desc nulls last
+      order by ${CRON_FACEBOOK_ORDER_SQL}
       limit $1`,
     [Math.min(Math.max(limit, 1), 8)],
   );
@@ -252,6 +252,8 @@ export async function countFacebookSentToday() {
   );
   return Number(result.rows[0].count);
 }
+
+export async function claimArticlesForFacebook(limit = 4) {
   const safeLimit = Math.min(Math.max(limit, 1), 8);
   const result = await getPostgresPool().query<{
     id: string; slug: string; title: string; summary: string; facebook_excerpt: string | null; facebook_attempts: number;
@@ -262,7 +264,7 @@ export async function countFacebookSentToday() {
           and facebook_status in ('pending', 'failed')
           and facebook_next_attempt_at <= now()
           and coalesce(trim(facebook_excerpt), trim(summary), '') <> ''
-        order by ${LOCAL_FACEBOOK_PRIORITY_SQL}, published_at desc nulls last
+        order by ${CRON_FACEBOOK_ORDER_SQL}
         for update skip locked
         limit $1
      )
@@ -302,6 +304,8 @@ export async function markFacebookRateLimited(id: string, error: string) {
     [id, error.slice(0, 2000)],
   );
 }
+
+export async function markFacebookFailed(id: string, error: string, retry = true) {
   await getPostgresPool().query(
     `update cms.articles set
        facebook_status = case when $2 then 'failed' else 'skipped' end,
