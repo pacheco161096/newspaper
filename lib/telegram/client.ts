@@ -24,6 +24,56 @@ function normalizeChatId(chatId: string | number) {
   return chatId;
 }
 
+function telegramApiUrl(method: string) {
+  return `${TELEGRAM_API_ORIGIN}/bot${readBotToken()}/${method}`;
+}
+
+export async function setWebhook(input: {
+  url: string;
+  secretToken: string;
+  allowedUpdates?: string[];
+  dropPendingUpdates?: boolean;
+}) {
+  const response = await fetch(telegramApiUrl('setWebhook'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      url: input.url,
+      secret_token: input.secretToken,
+      allowed_updates: input.allowedUpdates ?? ['message'],
+      drop_pending_updates: input.dropPendingUpdates ?? false,
+    }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10_000),
+  });
+  const payload = await response.json() as { ok?: boolean; description?: string };
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(`TELEGRAM_SET_WEBHOOK_FAILED:${payload.description ?? response.status}`);
+  }
+}
+
+export async function getWebhookInfo() {
+  const response = await fetch(telegramApiUrl('getWebhookInfo'), {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10_000),
+  });
+  const payload = await response.json() as {
+    ok?: boolean;
+    description?: string;
+    result?: {
+      url?: string;
+      pending_update_count?: number;
+      last_error_message?: string;
+      last_error_date?: number;
+      allowed_updates?: string[];
+    };
+  };
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(`TELEGRAM_GET_WEBHOOK_FAILED:${payload.description ?? response.status}`);
+  }
+  return payload.result ?? {};
+}
+
 export async function sendMessage({ chatId, text, options }: SendMessageInput) {
   if (typeof text !== 'string' || !text || text.length > 4096) throw new Error('TELEGRAM_SEND_FAILED');
   const token = readBotToken();

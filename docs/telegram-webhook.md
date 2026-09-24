@@ -105,7 +105,13 @@ Para que Telegram llegue a tu máquina hace falta un túnel HTTPS y registrar es
 
 ## Registrar el webhook
 
-No está registrado por el código. Cuando la URL pública exista, el comando es:
+No está registrado por el código en el arranque. Desde producción:
+
+```text
+GET https://hola-vallarta.vercel.app/api/telegram/webhook?register=1
+```
+
+Equivale a `setWebhook` con esa URL, `secret_token` = `TELEGRAM_WEBHOOK_SECRET` y `allowed_updates: ["message"]`. No tira la cola pendiente.
 
 ```bash
 curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
