@@ -1,4 +1,4 @@
-import { claimArticlesForFacebook, listFacebookQueue, markFacebookFailed, markFacebookSent } from '../../../../lib/cms/repository';
+import { claimArticlesForFacebook, countFacebookSentToday, listFacebookQueue, markFacebookFailed, markFacebookRateLimited, markFacebookSent } from '../../../../lib/cms/repository';
 import { facebookFirstComment, facebookPostText } from '../../../../lib/pipeline/editorial';
 import { publishToFacebook, waitForPublicArticle } from '../../../../lib/cms/zernio';
 import { isAuthorizedCron } from '../../../../lib/server/cron-auth';
@@ -13,7 +13,16 @@ export async function POST(request: Request) {
   }
   const requestUrl = new URL(request.url);
   const dryRun = requestUrl.searchParams.get('dryRun') === '1';
-  const limit = Number(requestUrl.searchParams.get('limit') ?? 4);
+  const dailyLimit = Math.max(1, Number(process.env.FACEBOOK_DAILY_LIMIT ?? 80));
+  const sentToday = await countFacebookSentToday();
+  const remaining = Math.max(0, dailyLimit - sentToday);
+  if (!remaining) {
+    return Response.json({
+      ok: true, executedAt: new Date().toISOString(), claimed: 0, sent: 0, failed: 0,
+      skipped: 'daily_limit', sentToday, dailyLimit, results: [],
+    });
+  }
+  const limit = Math.min(remaining, Number(requestUrl.searchParams.get('limit') ?? 4));
   const claimed = dryRun ? await listFacebookQueue(limit) : await claimArticlesForFacebook(limit);
   if (dryRun) {
     return Response.json({
@@ -35,6 +44,11 @@ export async function POST(request: Request) {
       results.push({ id: article.id, slug: article.slug, status: 'sent', zernioPostId: published.postId, url: publicUrl });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      if (message.includes('429') || /daily post limit/i.test(message)) {
+        await markFacebookRateLimited(article.id, message);
+        results.push({ id: article.id, slug: article.slug, error: message, retry: true, delayed: 'next_day' });
+        continue;
+      }
       const retry = !message.includes('ZERNIO_FACEBOOK_ACCOUNT') && article.attempts < 6;
       await markFacebookFailed(article.id, message, retry);
       results.push({ id: article.id, slug: article.slug, error: message, retry });

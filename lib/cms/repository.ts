@@ -244,7 +244,14 @@ export async function listFacebookQueue(limit = 4) {
   }));
 }
 
-export async function claimArticlesForFacebook(limit = 4) {
+export async function countFacebookSentToday() {
+  const result = await getPostgresPool().query<{ count: string }>(
+    `select count(*)::text as count from cms.articles
+      where facebook_status = 'sent'
+        and facebook_sent_at >= date_trunc('day', now() at time zone 'America/Mexico_City') at time zone 'America/Mexico_City'`,
+  );
+  return Number(result.rows[0].count);
+}
   const safeLimit = Math.min(Math.max(limit, 1), 8);
   const result = await getPostgresPool().query<{
     id: string; slug: string; title: string; summary: string; facebook_excerpt: string | null; facebook_attempts: number;
@@ -284,7 +291,17 @@ export async function markFacebookSent(id: string, zernioPostId: string) {
   );
 }
 
-export async function markFacebookFailed(id: string, error: string, retry = true) {
+export async function markFacebookRateLimited(id: string, error: string) {
+  await getPostgresPool().query(
+    `update cms.articles set
+       facebook_status = 'pending',
+       facebook_error = $2,
+       facebook_next_attempt_at = (date_trunc('day', now() at time zone 'America/Mexico_City') + interval '1 day') at time zone 'America/Mexico_City',
+       updated_at = now()
+     where id = $1`,
+    [id, error.slice(0, 2000)],
+  );
+}
   await getPostgresPool().query(
     `update cms.articles set
        facebook_status = case when $2 then 'failed' else 'skipped' end,
