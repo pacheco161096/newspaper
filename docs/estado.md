@@ -1,6 +1,6 @@
 # Hola Vallarta — estado de construcción
 
-Documento vivo: qué ya existe, cómo está armado y qué falta. Actualizado el 23 de septiembre de 2026.
+Documento vivo: qué ya existe, cómo está armado y qué falta. Actualizado el 24 de septiembre de 2026.
 
 La arquitectura de dominio está en [architecture.md](./architecture.md).
 
@@ -42,6 +42,7 @@ Cron → descubrir → guardar fuente → clasificar → resolver evento/duplica
 | Base | PostgreSQL (`pg`), esquemas `cms` y `pipeline` |
 | Producción | Neon (pool para la app, directo para migraciones) |
 | Colas / cron | cron-job.org → `POST /api/cron/*` |
+| Telegram | Webhook de texto hacia `pipeline.reports`. Sin fotos, IA ni publicación |
 
 ### Sitio público
 
@@ -93,7 +94,7 @@ Duplicados: `(source_key, external_id)` + resolver por titular (más estricto en
 - [ ] Conectar `holavallarta.mx`.
 - [ ] Cambiar contraseña temporal del CMS.
 - [ ] GA4 y Search Console.
-- [ ] Telegram / reportes / pagos (segundo MVP).
+- [ ] Bot de Telegram: el webhook ya guarda texto en `pipeline.reports`. Faltan fotos, envíos agrupados, IA, publicación y pagos. Ver [telegram-webhook.md](./telegram-webhook.md).
 
 ## Decisiones ya cerradas
 

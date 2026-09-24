@@ -13,6 +13,7 @@
     "db:migrate": "node --env-file-if-exists=.env.development.local --env-file-if-exists=.env.local scripts/migrate.mjs",
     "db:migrate:production": "node --env-file=.env.production.local scripts/migrate.mjs",
     "cms:hash-password": "node scripts/hash-password.mjs",
+    "telegram:check": "node --experimental-strip-types scripts/check-telegram.mjs",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down"
   },

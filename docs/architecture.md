@@ -18,7 +18,7 @@ La tabla `report_contributions` es el libro de atribución y pago. Publicar, act
 
 ## Segundo MVP: Telegram
 
-El adaptador de Telegram deberá convertir cada mensaje en un `Report`, usando `(channel, external_message_id)` como llave idempotente. Después se validará y se vinculará al evento correspondiente. El token, secreto de webhook y `telegram_user_id` ya tienen lugar reservado; todavía no existe lógica del bot ni se requiere para ejecutar el sitio.
+El webhook `POST /api/telegram/webhook` ya recibe texto de un reportero activo y lo guarda en `pipeline.reports`, con `(channel, external_message_id)` como llave idempotente (`external_message_id` = `{chat_id}:{message_id}`). Todavía no valida el hecho, no lo vincula a un evento y no publica. Operación: [telegram-webhook.md](./telegram-webhook.md). El sitio no depende del bot.
 
 ## Integraciones pendientes
 
