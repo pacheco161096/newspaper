@@ -1,5 +1,5 @@
 import { decideResolution } from '../../../../lib/pipeline/resolve';
-import { applyResolution, claimDocumentsForResolution, failResolution, findOpenEventCandidates } from '../../../../lib/pipeline/repository';
+import { applyResolution, claimDocumentsForResolution, failResolution, findOpenEventCandidates, skipStalePipelineDocuments } from '../../../../lib/pipeline/repository';
 import { isAuthorizedCron } from '../../../../lib/server/cron-auth';
 
 export const runtime = 'nodejs';
@@ -9,6 +9,7 @@ export async function POST(request: Request) {
   if (!isAuthorizedCron(request)) return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   const limit = Number(new URL(request.url).searchParams.get('limit') ?? 8);
   const workerId = `resolve:${crypto.randomUUID()}`;
+  const skippedStale = await skipStalePipelineDocuments();
   const claimed = await claimDocumentsForResolution(workerId, limit);
   const results = [];
 
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
 
   const ok = results.every((item) => !('error' in item));
   return Response.json({
-    ok, executedAt: new Date().toISOString(), workerId, claimed: claimed.length,
+    ok, executedAt: new Date().toISOString(), workerId, claimed: claimed.length, skippedStale,
     created: results.filter((item) => 'kind' in item && item.kind === 'new').length,
     duplicates: results.filter((item) => 'kind' in item && item.kind === 'duplicate').length,
     updates: results.filter((item) => 'kind' in item && item.kind === 'update').length,

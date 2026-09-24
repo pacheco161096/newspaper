@@ -27,7 +27,7 @@ Todos cada **30 minutos**.
 | HV redacción editorial | `/api/cron/editorial` | cada **15 min** | Redacta hasta 4 notas en paralelo |
 | HV Facebook Zernio | `/api/cron/facebook` | cada **15 min** | Publica texto; enlace en el primer comentario |
 
-Las colas de clasificar, resolver, redactar y Facebook procesan **primero las notas del día en curso** (`America/Mexico_City`), luego las más nuevas, y al empate las locales.
+Las colas de clasificar, resolver, redactar y Facebook **solo procesan notas del día en curso** (`America/Mexico_City`). Lo de días anteriores se descarta y no se publica ni en el sitio ni en Facebook.
 
 URL completas:
 

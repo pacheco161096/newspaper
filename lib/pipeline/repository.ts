@@ -1,7 +1,7 @@
 import { getPostgresPool } from '../server/postgres';
 import type { ClassificationResult } from './classify';
 import type { DiscoveredDocument, SourceKey } from './types';
-import { CRON_SOURCE_ORDER_SQL } from './sources';
+import { CRON_SOURCE_ORDER_SQL, CURRENT_NEWS_SQL } from './sources';
 
 export async function startIngestionRun(sourceKey: SourceKey) {
   const result = await getPostgresPool().query<{ id: string }>(
@@ -85,8 +85,9 @@ export async function claimDocumentsForClassification(workerId: string, limit = 
   }>(
     `with candidates as (
        select id from pipeline.source_documents
-        where (pipeline_status = 'discovered' and next_attempt_at <= now())
-           or (pipeline_status = 'processing' and locked_at < now() - interval '15 minutes')
+        where ${CURRENT_NEWS_SQL}
+          and ((pipeline_status = 'discovered' and next_attempt_at <= now())
+           or (pipeline_status = 'processing' and locked_at < now() - interval '15 minutes'))
         order by ${CRON_SOURCE_ORDER_SQL}
         for update skip locked
         limit $2
@@ -136,6 +137,29 @@ export async function countDocumentsToday(sourceKey: SourceKey) {
   return Number(result.rows[0].count);
 }
 
+export async function skipStalePipelineDocuments() {
+  const result = await getPostgresPool().query(
+    `update pipeline.source_documents
+        set pipeline_status = case
+              when pipeline_status in ('discovered', 'processing', 'classified') then 'rejected'
+              else pipeline_status
+            end,
+            editorial_status = case
+              when editorial_status in ('pending', 'processing') then 'skipped'
+              else editorial_status
+            end,
+            last_error = 'STALE_NOT_CURRENT_DAY',
+            locked_at = null,
+            locked_by = null
+      where not (${CURRENT_NEWS_SQL})
+        and (
+          pipeline_status in ('discovered', 'processing', 'classified')
+          or editorial_status in ('pending', 'processing')
+        )`,
+  );
+  return result.rowCount ?? 0;
+}
+
 export type ResolutionKind = 'new' | 'duplicate' | 'update';
 
 export async function claimDocumentsForResolution(workerId: string, limit = 8): Promise<QueuedSourceDocument[]> {
@@ -148,6 +172,7 @@ export async function claimDocumentsForResolution(workerId: string, limit = 8): 
        select id from pipeline.source_documents
         where pipeline_status = 'classified'
           and classification_label = 'news'
+          and ${CURRENT_NEWS_SQL}
           and next_attempt_at <= now()
           and (locked_at is null or locked_at < now() - interval '15 minutes')
         order by ${CRON_SOURCE_ORDER_SQL}, classified_at desc nulls last
@@ -281,6 +306,7 @@ export async function claimDocumentsForEditorial(workerId: string, limit = 1): P
           and pipeline_status = 'resolved'
           and resolution_kind in ('new', 'update')
           and event_id is not null
+          and ${CURRENT_NEWS_SQL}
           and next_attempt_at <= now()
           and (locked_at is null or locked_at < now() - interval '15 minutes')
           and length(trim(raw_content)) >= 180

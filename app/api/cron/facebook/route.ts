@@ -1,4 +1,4 @@
-import { claimArticlesForFacebook, countFacebookSentToday, listFacebookQueue, markFacebookFailed, markFacebookRateLimited, markFacebookSent } from '../../../../lib/cms/repository';
+import { claimArticlesForFacebook, countFacebookSentToday, listFacebookQueue, markFacebookFailed, markFacebookRateLimited, markFacebookSent, skipStaleFacebookArticles } from '../../../../lib/cms/repository';
 import { facebookFirstComment, facebookPostText } from '../../../../lib/pipeline/editorial';
 import { publishToFacebook, waitForPublicArticle } from '../../../../lib/cms/zernio';
 import { isAuthorizedCron } from '../../../../lib/server/cron-auth';
@@ -13,6 +13,7 @@ export async function POST(request: Request) {
   }
   const requestUrl = new URL(request.url);
   const dryRun = requestUrl.searchParams.get('dryRun') === '1';
+  const skippedStale = dryRun ? 0 : await skipStaleFacebookArticles();
   const dailyLimit = Math.max(1, Number(process.env.FACEBOOK_DAILY_LIMIT ?? 80));
   const sentToday = await countFacebookSentToday();
   const remaining = Math.max(0, dailyLimit - sentToday);
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
     ok, executedAt: new Date().toISOString(), claimed: claimed.length,
     sent: results.filter((item) => 'status' in item && item.status === 'sent').length,
     failed: results.filter((item) => 'error' in item).length,
+    skippedStale,
     results,
   }, { status: ok ? 200 : 207 });
 }

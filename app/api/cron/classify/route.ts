@@ -1,5 +1,5 @@
 import { classifyDocument, pipelineStatusFor } from '../../../../lib/pipeline/classify';
-import { claimDocumentsForClassification, failClassification, finishClassification } from '../../../../lib/pipeline/repository';
+import { claimDocumentsForClassification, failClassification, finishClassification, skipStalePipelineDocuments } from '../../../../lib/pipeline/repository';
 import { isAuthorizedCron } from '../../../../lib/server/cron-auth';
 
 export const runtime = 'nodejs';
@@ -11,6 +11,7 @@ export async function POST(request: Request) {
   const dryRun = requestUrl.searchParams.get('dryRun') === '1';
   const limit = Number(requestUrl.searchParams.get('limit') ?? 12);
   const workerId = `classify:${crypto.randomUUID()}`;
+  const skippedStale = await skipStalePipelineDocuments();
 
   if (dryRun) {
     return Response.json({
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
 
   const ok = results.every((item) => !('error' in item));
   return Response.json({
-    ok, executedAt: new Date().toISOString(), workerId, claimed: claimed.length,
+    ok, executedAt: new Date().toISOString(), workerId, claimed: claimed.length, skippedStale,
     news: results.filter((item) => 'label' in item && item.label === 'news').length,
     rejected: results.filter((item) => 'label' in item && item.label !== 'news').length,
     failed: results.filter((item) => 'error' in item).length,

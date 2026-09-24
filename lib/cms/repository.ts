@@ -1,6 +1,6 @@
 import { getPostgresPool } from '../server/postgres';
 import type { ArticleInput, ArticleStatus, CmsArticle, CmsAuthor } from './types';
-import { CRON_FACEBOOK_ORDER_SQL, LOCAL_ARTICLE_PRIORITY_SQL } from '../pipeline/sources';
+import { CRON_FACEBOOK_ORDER_SQL, FACEBOOK_CURRENT_DAY_SQL, LOCAL_ARTICLE_PRIORITY_SQL } from '../pipeline/sources';
 
 type ArticleRow = {
   id: string; slug: string; category: CmsArticle['category']; title: string; summary: string;
@@ -232,6 +232,7 @@ export async function listFacebookQueue(limit = 4) {
     `select id, slug, title, summary, facebook_excerpt, facebook_attempts from cms.articles
       where status = 'published'
         and facebook_status in ('pending', 'failed')
+        and ${FACEBOOK_CURRENT_DAY_SQL}
         and facebook_next_attempt_at <= now()
         and coalesce(trim(facebook_excerpt), trim(summary), '') <> ''
       order by ${CRON_FACEBOOK_ORDER_SQL}
@@ -253,6 +254,18 @@ export async function countFacebookSentToday() {
   return Number(result.rows[0].count);
 }
 
+export async function skipStaleFacebookArticles() {
+  const result = await getPostgresPool().query(
+    `update cms.articles
+        set facebook_status = 'skipped',
+            facebook_error = 'STALE_NOT_CURRENT_DAY',
+            updated_at = now()
+      where facebook_status in ('pending', 'failed')
+        and not (${FACEBOOK_CURRENT_DAY_SQL})`,
+  );
+  return result.rowCount ?? 0;
+}
+
 export async function claimArticlesForFacebook(limit = 4) {
   const safeLimit = Math.min(Math.max(limit, 1), 8);
   const result = await getPostgresPool().query<{
@@ -262,6 +275,7 @@ export async function claimArticlesForFacebook(limit = 4) {
        select id from cms.articles
         where status = 'published'
           and facebook_status in ('pending', 'failed')
+          and ${FACEBOOK_CURRENT_DAY_SQL}
           and facebook_next_attempt_at <= now()
           and coalesce(trim(facebook_excerpt), trim(summary), '') <> ''
         order by ${CRON_FACEBOOK_ORDER_SQL}

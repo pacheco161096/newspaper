@@ -1,6 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { draftEditorial, persistEditorial } from '../../../../lib/pipeline/editorial';
-import { claimDocumentsForEditorial, failEditorial, finishEditorial } from '../../../../lib/pipeline/repository';
+import { claimDocumentsForEditorial, failEditorial, finishEditorial, skipStalePipelineDocuments } from '../../../../lib/pipeline/repository';
 import { isAuthorizedCron } from '../../../../lib/server/cron-auth';
 
 export const runtime = 'nodejs';
@@ -13,6 +13,7 @@ export async function POST(request: Request) {
   }
   const limit = Number(new URL(request.url).searchParams.get('limit') ?? 4);
   const workerId = `editorial:${crypto.randomUUID()}`;
+  const skippedStale = await skipStalePipelineDocuments();
   const claimed = await claimDocumentsForEditorial(workerId, limit);
   const drafted = await Promise.all(claimed.map(async (document) => {
     try {
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
 
   const ok = results.every((item) => !('error' in item));
   return Response.json({
-    ok, executedAt: new Date().toISOString(), workerId, claimed: claimed.length,
+    ok, executedAt: new Date().toISOString(), workerId, claimed: claimed.length, skippedStale,
     published: results.filter((item) => 'published' in item && item.published).length,
     review: results.filter((item) => 'needsReview' in item && item.needsReview).length,
     failed: results.filter((item) => 'error' in item).length,

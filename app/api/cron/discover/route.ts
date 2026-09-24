@@ -1,5 +1,5 @@
 import { discoverSource, newestFirst } from '../../../../lib/pipeline/discovery';
-import { countDocumentsToday, findExistingExternalIds, finishIngestionRun, startIngestionRun, storeDocuments } from '../../../../lib/pipeline/repository';
+import { countDocumentsToday, findExistingExternalIds, finishIngestionRun, skipStalePipelineDocuments, startIngestionRun, storeDocuments } from '../../../../lib/pipeline/repository';
 import { isSourceKey, sources } from '../../../../lib/pipeline/sources';
 import { isAuthorizedCron } from '../../../../lib/server/cron-auth';
 
@@ -17,6 +17,7 @@ export async function POST(request: Request) {
     if (sources[requestedSource].enabled === false) return Response.json({ ok: false, error: 'source_disabled', reason: sources[requestedSource].disabledReason }, { status: 409 });
     selected = [sources[requestedSource]];
   }
+  const skippedStale = dryRun ? 0 : await skipStalePipelineDocuments();
   const output = [];
 
   for (const source of selected) {
@@ -48,5 +49,5 @@ export async function POST(request: Request) {
   }
 
   const ok = output.every((item) => !('error' in item));
-  return Response.json({ ok, executedAt: new Date().toISOString(), results: output }, { status: ok ? 200 : 207 });
+  return Response.json({ ok, executedAt: new Date().toISOString(), skippedStale, results: output }, { status: ok ? 200 : 207 });
 }

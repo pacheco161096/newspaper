@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { XMLParser } from 'fast-xml-parser';
 import { load } from 'cheerio';
 import type { DiscoveredDocument, DiscoveryResult } from './types';
-import type { RssSource, SourceDefinition, WordPressSource } from './sources';
+import { isCurrentMexicoNewsDay, mexicoCityDay, type RssSource, type SourceDefinition, type WordPressSource } from './sources';
 
 const NATIONAL_RELEVANCE = [
   'president', 'gobierno', 'congreso', 'senado', 'diputad', 'elecci', 'reforma',
@@ -278,15 +278,8 @@ function publishedAtMs(document: DiscoveredDocument) {
   return Number.isFinite(time) ? time : 0;
 }
 
-function mexicoCityDay(value: string | null) {
-  if (!value) return '';
-  const time = Date.parse(value);
-  if (!Number.isFinite(time)) return '';
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(time));
-}
-
 export function newestFirst(documents: DiscoveredDocument[]) {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const today = mexicoCityDay(new Date());
   return [...documents].sort((left, right) => {
     const leftToday = mexicoCityDay(left.sourcePublishedAt ?? left.sourceModifiedAt) === today ? 0 : 1;
     const rightToday = mexicoCityDay(right.sourcePublishedAt ?? right.sourceModifiedAt) === today ? 0 : 1;
@@ -301,6 +294,13 @@ export async function discoverSource(source: SourceDefinition): Promise<Discover
     : source.adapter === 'news-sitemap'
       ? await discoverNewsSitemap(source)
       : await discoverRss(source);
-  const accepted = newestFirst(found.filter((item) => accept(source, item.rawTitle, item.rawExcerpt)));
-  return { sourceKey: source.key, fetched: found.length, accepted: accepted.length, rejectedByPrefilter: found.length - accepted.length, documents: accepted };
+  const current = found.filter((item) => isCurrentMexicoNewsDay(item.sourcePublishedAt ?? item.sourceModifiedAt));
+  const accepted = newestFirst(current.filter((item) => accept(source, item.rawTitle, item.rawExcerpt)));
+  return {
+    sourceKey: source.key,
+    fetched: found.length,
+    accepted: accepted.length,
+    rejectedByPrefilter: found.length - accepted.length,
+    documents: accepted,
+  };
 }
