@@ -56,4 +56,13 @@ npm run cms:hash-password -- "una contraseña segura de al menos 12 caracteres"
 
 `CMS_SESSION_SECRET` debe ser una cadena aleatoria larga. Antes del primer despliegue se ejecuta `npm run db:migrate` apuntando a la base de producción.
 
+Para Facebook (Zernio):
+
+```text
+ZERNIO_API_KEY
+ZERNIO_FACEBOOK_ACCOUNT_ID
+```
+
+`ZERNIO_FACEBOOK_ACCOUNT_ID` es opcional si solo hay una página de Facebook conectada en Zernio. Crear la clave en [docs.zernio.com](https://docs.zernio.com/quickstart). El cron `POST /api/cron/facebook` publica el texto y pone la URL de la nota en el primer comentario, después de comprobar que la página pública responde.
+
 Vercel despliega la aplicación Next.js. Docker no se usa en producción; `docker-compose.yml` existe únicamente para PostgreSQL local.

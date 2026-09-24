@@ -5,7 +5,9 @@
 .admin-nav { display: flex; align-items: center; gap: 18px; font-size: 13px; }
 .admin-link-button { padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .admin-main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 80px; }
-.admin-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 28px; }
+.admin-heading-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.status-pill.warn { background: #fff4e5; color: #9a6700; }
+.status-pill.bad { background: #fdecea; color: #b51635; }
 .admin-heading h1 { margin: 0; font-size: clamp(30px, 5vw, 46px); letter-spacing: -.04em; }
 .admin-heading p { width: 100%; margin: -8px 0 0; color: #6b6b72; }
 .admin-button { display: inline-flex; justify-content: center; align-items: center; min-height: 42px; padding: 0 17px; border: 1px solid #202024; border-radius: 5px; background: #202024; color: white; font-weight: 750; cursor: pointer; }

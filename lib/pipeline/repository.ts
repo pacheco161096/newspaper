@@ -1,6 +1,7 @@
 import { getPostgresPool } from '../server/postgres';
 import type { ClassificationResult } from './classify';
 import type { DiscoveredDocument, SourceKey } from './types';
+import { LOCAL_SOURCE_PRIORITY_SQL } from './sources';
 
 export async function startIngestionRun(sourceKey: SourceKey) {
   const result = await getPostgresPool().query<{ id: string }>(
@@ -86,7 +87,7 @@ export async function claimDocumentsForClassification(workerId: string, limit = 
        select id from pipeline.source_documents
         where (pipeline_status = 'discovered' and next_attempt_at <= now())
            or (pipeline_status = 'processing' and locked_at < now() - interval '15 minutes')
-        order by coalesce(source_published_at, discovered_at) desc nulls last
+        order by ${LOCAL_SOURCE_PRIORITY_SQL}, coalesce(source_published_at, discovered_at) desc nulls last
         for update skip locked
         limit $2
      )
@@ -149,7 +150,7 @@ export async function claimDocumentsForResolution(workerId: string, limit = 8): 
           and classification_label = 'news'
           and next_attempt_at <= now()
           and (locked_at is null or locked_at < now() - interval '15 minutes')
-        order by coalesce(source_published_at, discovered_at) desc nulls last, classified_at desc nulls last
+        order by ${LOCAL_SOURCE_PRIORITY_SQL}, coalesce(source_published_at, discovered_at) desc nulls last, classified_at desc nulls last
         for update skip locked
         limit $2
      )
@@ -283,7 +284,7 @@ export async function claimDocumentsForEditorial(workerId: string, limit = 1): P
           and next_attempt_at <= now()
           and (locked_at is null or locked_at < now() - interval '15 minutes')
           and length(trim(raw_content)) >= 180
-        order by coalesce(source_published_at, discovered_at) desc nulls last
+        order by ${LOCAL_SOURCE_PRIORITY_SQL}, coalesce(source_published_at, discovered_at) desc nulls last
         for update skip locked
         limit $2
      )
@@ -331,4 +332,55 @@ export async function finishEditorial(id: string, articleId: string, payload: un
      where id = $1`,
     [id, articleId, published ? 'published' : 'drafted', JSON.stringify(payload)],
   );
+}
+
+export type PipelineQueueRow = {
+  id: string;
+  sourceKey: SourceKey;
+  rawTitle: string;
+  pipelineStatus: string;
+  editorialStatus: string | null;
+  resolutionKind: string | null;
+  lastError: string | null;
+  sourcePublishedAt: string | null;
+};
+
+export async function getPipelineQueueSnapshot(limit = 80) {
+  const pool = getPostgresPool();
+  const [counts, rows] = await Promise.all([
+    pool.query<{ pipeline_status: string; editorial_status: string | null; n: number }>(
+      `select pipeline_status, editorial_status, count(*)::int as n
+         from pipeline.source_documents
+        group by 1, 2
+        order by 1, 2`,
+    ),
+    pool.query<{
+      id: string; source_key: SourceKey; raw_title: string; pipeline_status: string;
+      editorial_status: string | null; resolution_kind: string | null; last_error: string | null;
+      source_published_at: Date | null;
+    }>(
+      `select id, source_key, raw_title, pipeline_status, editorial_status, resolution_kind, last_error, source_published_at
+         from pipeline.source_documents
+        order by ${LOCAL_SOURCE_PRIORITY_SQL}, coalesce(source_published_at, discovered_at) desc nulls last
+        limit $1`,
+      [Math.min(Math.max(limit, 1), 200)],
+    ),
+  ]);
+  return {
+    counts: counts.rows.map((row) => ({
+      pipelineStatus: row.pipeline_status,
+      editorialStatus: row.editorial_status,
+      count: row.n,
+    })),
+    documents: rows.rows.map((row): PipelineQueueRow => ({
+      id: row.id,
+      sourceKey: row.source_key,
+      rawTitle: row.raw_title,
+      pipelineStatus: row.pipeline_status,
+      editorialStatus: row.editorial_status,
+      resolutionKind: row.resolution_kind,
+      lastError: row.last_error,
+      sourcePublishedAt: row.source_published_at?.toISOString() ?? null,
+    })),
+  };
 }

@@ -15,7 +15,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const query = (await searchParams).q?.trim().toLowerCase() ?? '';
   const [articles, spend] = await Promise.all([listCmsArticles(), getOpenAiSpendSummary().catch(() => null)]);
   const visible = articles.filter((article) => !query || article.title.toLowerCase().includes(query) || article.slug.includes(query));
-  return <AdminShell><div className="admin-heading"><h1>Noticias</h1><Link className="admin-button" href="/admin/noticias/nueva">Nueva noticia</Link><p>Publica, edita o retira contenido del sitio.</p></div>
+  return <AdminShell>
+    <div className="admin-heading"><h1>Noticias</h1><div className="admin-heading-actions"><Link className="admin-button secondary" href="/admin/importar">Importar hechos</Link><Link className="admin-button" href="/admin/noticias/nueva">Nueva noticia</Link></div><p>Publica, edita o retira contenido del sitio.</p></div>
     {spend && <div className="admin-spend">
       <div className="admin-spend-card"><span>OpenAI hoy</span><strong>{money(spend.todayUsd)}</strong><small>{spend.todayCalls} llamadas</small></div>
       <div className="admin-spend-card"><span>Este mes</span><strong>{money(spend.monthUsd)}</strong><small>{spend.monthCalls} llamadas</small></div>
@@ -23,8 +24,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       <div className="admin-spend-card"><span>Redacción</span><strong>{money(spend.editorialUsd)}</strong><small>Estimado según tarifas del modelo</small></div>
     </div>}
     <form className="admin-toolbar"><input name="q" defaultValue={query} placeholder="Buscar por titular o slug…" /><button className="admin-button secondary">Buscar</button></form>
-    <div className="admin-table-wrap">{visible.length ? <table className="admin-table"><thead><tr><th>Noticia</th><th>Autor</th><th>Categoría</th><th>Estado</th><th>Actualización</th><th></th></tr></thead><tbody>
-      {visible.map((article) => <tr key={article.id}><td><span className="admin-table-title">{article.title}</span><span className="admin-table-meta">/noticias/{article.slug}</span></td><td>{article.authorName}</td><td>{article.category}</td><td><span className={`status-pill ${article.status === 'published' ? '' : 'off'}`}>{article.status === 'published' ? 'Publicada' : 'No publicada'}</span></td><td>{new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Mexico_City' }).format(new Date(article.updatedAt))}</td><td><Link className="admin-button secondary" href={`/admin/noticias/${article.id}`}>Editar</Link></td></tr>)}
+    <div className="admin-table-wrap">{visible.length ? <table className="admin-table"><thead><tr><th>Noticia</th><th>Autor</th><th>Categoría</th><th>Estado</th><th>Facebook</th><th>Actualización</th><th></th></tr></thead><tbody>
+      {visible.map((article) => <tr key={article.id}><td><span className="admin-table-title">{article.title}</span><span className="admin-table-meta">/noticias/{article.slug}</span></td><td>{article.authorName}</td><td>{article.category}</td><td><span className={`status-pill ${article.status === 'published' ? '' : 'off'}`}>{article.status === 'published' ? 'Publicada' : 'No publicada'}</span></td><td><span className={`status-pill ${article.facebookStatus === 'sent' ? '' : article.facebookStatus === 'failed' ? 'bad' : article.facebookStatus === 'pending' ? 'warn' : 'off'}`}>{article.facebookStatus === 'sent' ? 'Enviado' : article.facebookStatus === 'pending' ? 'Pendiente' : article.facebookStatus === 'failed' ? 'Falló' : 'No'}</span></td><td>{new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Mexico_City' }).format(new Date(article.updatedAt))}</td><td><Link className="admin-button secondary" href={`/admin/noticias/${article.id}`}>Editar</Link></td></tr>)}
     </tbody></table> : <div className="admin-empty">Todavía no hay noticias. Crea la primera desde el botón superior.</div>}</div>
   </AdminShell>;
 }

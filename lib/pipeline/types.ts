@@ -1,4 +1,4 @@
-export type SourceKey = 'noticias_pv' | 'tribuna_bahia' | 'el_universal' | 'record';
+export type SourceKey = 'noticias_pv' | 'tribuna_bahia' | 'el_universal' | 'record' | 'notiespacio_pv';
 
 export type DiscoveredDocument = {
   sourceKey: SourceKey;

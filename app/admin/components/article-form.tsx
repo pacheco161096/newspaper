@@ -24,7 +24,7 @@ export function ArticleForm({
     <section className="admin-form-card"><h2>SEO y Facebook</h2><div className="admin-grid two">
       <div className="admin-field"><label htmlFor="seoTitle">Título SEO</label><input id="seoTitle" name="seoTitle" defaultValue={article?.seoTitle} maxLength={70} /><small>Si queda vacío se usa el titular.</small></div>
       <div className="admin-field"><label htmlFor="seoDescription">Descripción SEO</label><textarea id="seoDescription" name="seoDescription" defaultValue={article?.seoDescription} maxLength={170} /></div>
-      <div className="admin-field full"><label htmlFor="facebookExcerpt">Texto para Facebook</label><textarea id="facebookExcerpt" name="facebookExcerpt" defaultValue={article?.facebookExcerpt} maxLength={500} /><small>Zernio usará este texto; el enlace se publicará después como primer comentario.</small></div>
+      <div className="admin-field full"><label htmlFor="facebookExcerpt">Texto para Facebook</label><textarea id="facebookExcerpt" name="facebookExcerpt" defaultValue={article?.facebookExcerpt} maxLength={500} /><small>Resumen de la nota. Al publicar se añade “continúa leyendo en el primer comentario” y el enlace va en ese comentario.</small></div>
     </div></section>
     <section className="admin-form-card"><h2>Trazabilidad de fuente</h2><div className="admin-grid two">
       <div className="admin-field"><label htmlFor="sourceName">Nombre de la fuente</label><input id="sourceName" name="sourceName" defaultValue={article?.sourceName} /></div>

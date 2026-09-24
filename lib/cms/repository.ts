@@ -1,11 +1,13 @@
 import { getPostgresPool } from '../server/postgres';
 import type { ArticleInput, ArticleStatus, CmsArticle, CmsAuthor } from './types';
+import { LOCAL_ARTICLE_PRIORITY_SQL, LOCAL_FACEBOOK_PRIORITY_SQL } from '../pipeline/sources';
 
 type ArticleRow = {
   id: string; slug: string; category: CmsArticle['category']; title: string; summary: string;
   body_text: string; hero_image_url: string | null; image_alt: string | null;
   seo_title: string | null; seo_description: string | null; facebook_excerpt: string | null;
   source_name: string | null; source_url: string | null; status: ArticleStatus;
+  facebook_status: 'skipped' | 'pending' | 'sent' | 'failed';
   published_at: Date | null; created_at: Date; updated_at: Date;
   author_id: string; author_slug: string; author_name: string; author_role: string;
 };
@@ -18,14 +20,14 @@ function mapRow(row: ArticleRow): CmsArticle {
     seoDescription: row.seo_description ?? undefined, facebookExcerpt: row.facebook_excerpt ?? undefined,
     sourceName: row.source_name ?? undefined, sourceUrl: row.source_url ?? undefined,
     authorId: row.author_id, authorSlug: row.author_slug, authorName: row.author_name, authorRole: row.author_role,
-    status: row.status, publishedAt: row.published_at?.toISOString(),
+    status: row.status, facebookStatus: row.facebook_status, publishedAt: row.published_at?.toISOString(),
     createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
   };
 }
 
 const selection = `a.id, a.slug, a.category, a.title, a.summary, a.body_text, a.hero_image_url, a.image_alt,
   a.seo_title, a.seo_description, a.facebook_excerpt, a.source_name, a.source_url, a.status,
-  a.published_at, a.created_at, a.updated_at, a.author_id, au.slug as author_slug, au.name as author_name, au.role as author_role`;
+  a.facebook_status, a.published_at, a.created_at, a.updated_at, a.author_id, au.slug as author_slug, au.name as author_name, au.role as author_role`;
 
 const fromArticles = `cms.articles a join cms.authors au on au.id = a.author_id`;
 
@@ -108,7 +110,7 @@ export async function listCmsArticles() {
 
 export async function listPublishedCmsArticles() {
   const result = await getPostgresPool().query<ArticleRow>(
-    `select ${selection} from ${fromArticles} where a.status = 'published' order by a.published_at desc`,
+    `select ${selection} from ${fromArticles} where a.status = 'published' order by ${LOCAL_ARTICLE_PRIORITY_SQL}, a.published_at desc`,
   );
   return result.rows.map(mapRow);
 }
@@ -169,8 +171,9 @@ export async function createCmsArticle(input: ArticleInput) {
   const result = await getPostgresPool().query<{ id: string }>(
     `insert into cms.articles (slug, category, title, summary, body_text, hero_image_url, image_alt,
       seo_title, seo_description, facebook_excerpt, source_name, source_url, status, author_id, published_at,
-      event_id, source_document_id)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,case when $13 = 'published' then now() else null end,$15,$16)
+      event_id, source_document_id, facebook_status, facebook_next_attempt_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,case when $13 = 'published' then now() else null end,$15,$16,
+       case when $13 = 'published' then 'pending' else 'skipped' end, now())
      returning id`,
     [...values(input, authorId), input.eventId ?? null, input.sourceDocumentId ?? null],
   );
@@ -187,6 +190,12 @@ export async function updateCmsArticle(id: string, input: ArticleInput) {
       hero_image_url=$6, image_alt=$7, seo_title=$8, seo_description=$9, facebook_excerpt=$10,
       source_name=$11, source_url=$12, status=$13, author_id=$14,
       published_at=case when $13 = 'published' then coalesce(published_at, now()) else published_at end,
+      facebook_status=case
+        when facebook_status = 'sent' then facebook_status
+        when $13 = 'published' then 'pending'
+        else 'skipped' end,
+      facebook_next_attempt_at=case when $13 = 'published' and facebook_status <> 'sent' then now() else facebook_next_attempt_at end,
+      facebook_error=case when $13 = 'published' and facebook_status <> 'sent' then null else facebook_error end,
       updated_at=now() where id=$15`, [...values(input, authorId), id],
   );
   const action = previous.status !== input.status ? input.status === 'published' ? 'published' : 'unpublished' : 'updated';
@@ -197,7 +206,92 @@ export async function setCmsArticleStatus(id: string, status: ArticleStatus) {
   await getPostgresPool().query(
     `update cms.articles set status=$2,
       published_at=case when $2='published' then coalesce(published_at, now()) else published_at end,
+      facebook_status=case
+        when facebook_status = 'sent' then facebook_status
+        when $2 = 'published' then 'pending'
+        else 'skipped' end,
+      facebook_next_attempt_at=case when $2 = 'published' and facebook_status <> 'sent' then now() else facebook_next_attempt_at end,
       updated_at=now() where id=$1`, [id, status],
   );
   await recordRevision(id, status === 'published' ? 'published' : 'unpublished');
+}
+
+export type FacebookQueueArticle = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  facebookExcerpt: string;
+  attempts: number;
+};
+
+export async function listFacebookQueue(limit = 4) {
+  const result = await getPostgresPool().query<{
+    id: string; slug: string; title: string; summary: string; facebook_excerpt: string | null; facebook_attempts: number;
+  }>(
+    `select id, slug, title, summary, facebook_excerpt, facebook_attempts from cms.articles
+      where status = 'published'
+        and facebook_status in ('pending', 'failed')
+        and facebook_next_attempt_at <= now()
+        and coalesce(trim(facebook_excerpt), trim(summary), '') <> ''
+      order by ${LOCAL_FACEBOOK_PRIORITY_SQL}, published_at desc nulls last
+      limit $1`,
+    [Math.min(Math.max(limit, 1), 8)],
+  );
+  return result.rows.map((row): FacebookQueueArticle => ({
+    id: row.id, slug: row.slug, title: row.title, summary: row.summary,
+    facebookExcerpt: row.facebook_excerpt ?? '', attempts: row.facebook_attempts,
+  }));
+}
+
+export async function claimArticlesForFacebook(limit = 4) {
+  const safeLimit = Math.min(Math.max(limit, 1), 8);
+  const result = await getPostgresPool().query<{
+    id: string; slug: string; title: string; summary: string; facebook_excerpt: string | null; facebook_attempts: number;
+  }>(
+    `with candidates as (
+       select id from cms.articles
+        where status = 'published'
+          and facebook_status in ('pending', 'failed')
+          and facebook_next_attempt_at <= now()
+          and coalesce(trim(facebook_excerpt), trim(summary), '') <> ''
+        order by ${LOCAL_FACEBOOK_PRIORITY_SQL}, published_at desc nulls last
+        for update skip locked
+        limit $1
+     )
+     update cms.articles a set
+       facebook_attempts = facebook_attempts + 1,
+       facebook_error = null
+     from candidates where a.id = candidates.id
+     returning a.id, a.slug, a.title, a.summary, a.facebook_excerpt, a.facebook_attempts`,
+    [safeLimit],
+  );
+  return result.rows.map((row): FacebookQueueArticle => ({
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    summary: row.summary,
+    facebookExcerpt: row.facebook_excerpt ?? '',
+    attempts: row.facebook_attempts,
+  }));
+}
+
+export async function markFacebookSent(id: string, zernioPostId: string) {
+  await getPostgresPool().query(
+    `update cms.articles set facebook_status = 'sent', zernio_post_id = $2, facebook_sent_at = now(),
+       facebook_error = null, updated_at = now() where id = $1`,
+    [id, zernioPostId],
+  );
+}
+
+export async function markFacebookFailed(id: string, error: string, retry = true) {
+  await getPostgresPool().query(
+    `update cms.articles set
+       facebook_status = case when $2 then 'failed' else 'skipped' end,
+       facebook_error = $3,
+       facebook_next_attempt_at = case when $2 then now() + (interval '1 minute' * least(60, power(2, facebook_attempts))) else facebook_next_attempt_at end,
+       updated_at = now()
+     where id = $1`,
+    [id, retry, error.slice(0, 2000)],
+  );
 }

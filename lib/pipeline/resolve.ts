@@ -1,5 +1,6 @@
 import type { QueuedSourceDocument } from './repository';
 import type { SourceKey } from './types';
+import { LOCAL_SOURCE_KEYS } from './sources';
 
 export type ResolutionKind = 'new' | 'duplicate' | 'update';
 
@@ -45,6 +46,12 @@ export function jaccard(left: Set<string>, right: Set<string>) {
   return overlap / (left.size + right.size - overlap);
 }
 
+const LOCAL_SOURCE_SET = new Set<SourceKey>(LOCAL_SOURCE_KEYS);
+
+function isLocalCover(left: SourceKey | null, right: SourceKey) {
+  return Boolean(left && LOCAL_SOURCE_SET.has(left) && LOCAL_SOURCE_SET.has(right));
+}
+
 export function decideResolution(document: QueuedSourceDocument, candidates: EventCandidate[]): ResolutionResult {
   const incomingTokens = headlineTokens(document.rawTitle);
   const ranked = candidates.map((candidate) => {
@@ -63,7 +70,9 @@ export function decideResolution(document: QueuedSourceDocument, candidates: Eve
     };
   }
 
-  if (best.score >= 0.78 || (best.originSourceKey === document.sourceKey && best.score >= 0.55)) {
+  const sameSource = best.originSourceKey === document.sourceKey;
+  const sameLocalStory = isLocalCover(best.originSourceKey, document.sourceKey);
+  if (best.score >= 0.78 || (sameSource && best.score >= 0.55) || (sameLocalStory && best.score >= 0.62)) {
     return {
       kind: 'duplicate', eventId: best.eventId, score: best.score, method: 'rules',
       reasons: [`Muy similar a “${best.canonicalTitle}” (score ${best.score.toFixed(2)}); se trata como el mismo recuento del hecho.`],

@@ -30,6 +30,7 @@ export type CmsArticle = {
   authorName: string;
   authorRole: string;
   status: ArticleStatus;
+  facebookStatus?: 'skipped' | 'pending' | 'sent' | 'failed';
   publishedAt?: string;
   createdAt: string;
   updatedAt: string;

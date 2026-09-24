@@ -6,6 +6,7 @@ import { createAdminSession, destroyAdminSession, requireAdmin, validateAdminCre
 import { createCmsArticle, createCmsAuthor, setCmsArticleStatus, updateCmsArticle, updateCmsAuthor } from '@/lib/cms/repository';
 import type { ArticleInput, ArticleStatus } from '@/lib/cms/types';
 import type { CategorySlug } from '@/lib/content';
+import { facebookInvite, stripOutletMentions, uniqueSlug } from '@/lib/pipeline/editorial';
 
 function value(formData: FormData, name: string) { return String(formData.get(name) ?? '').trim(); }
 
@@ -19,7 +20,7 @@ function articleInput(formData: FormData): ArticleInput {
     summary: value(formData, 'summary'), bodyText: value(formData, 'bodyText'),
     heroImageUrl: value(formData, 'heroImageUrl'), imageAlt: value(formData, 'imageAlt'),
     seoTitle: value(formData, 'seoTitle'), seoDescription: value(formData, 'seoDescription'),
-    facebookExcerpt: value(formData, 'facebookExcerpt'), sourceName: value(formData, 'sourceName'),
+    facebookExcerpt: facebookInvite(value(formData, 'facebookExcerpt'), value(formData, 'summary')), sourceName: value(formData, 'sourceName'),
     sourceUrl: value(formData, 'sourceUrl'), authorId: value(formData, 'authorId') || undefined, status,
   };
   if (!input.title || !input.slug || !input.summary || !input.bodyText) throw new Error('Faltan campos obligatorios');
@@ -35,6 +36,28 @@ export async function loginAction(formData: FormData) {
 }
 
 export async function logoutAction() { await destroyAdminSession(); redirect('/admin/login'); }
+
+export async function importFactsAction(formData: FormData) {
+  await requireAdmin();
+  const title = stripOutletMentions(value(formData, 'title'));
+  const facts = stripOutletMentions(value(formData, 'facts'));
+  const summaryInput = stripOutletMentions(value(formData, 'summary'));
+  const category = value(formData, 'category') as CategorySlug;
+  const status = value(formData, 'status') as ArticleStatus;
+  if (!title || facts.length < 180) throw new Error('Hace falta titular y al menos 180 caracteres de hechos');
+  if (!['ultimo-minuto', 'jalisco', 'nacional'].includes(category)) throw new Error('Categoría inválida');
+  if (!['published', 'unpublished'].includes(status)) throw new Error('Estado inválido');
+  const summary = summaryInput || facts.slice(0, 280);
+  const slug = await uniqueSlug(title);
+  const facebookExcerpt = facebookInvite(undefined, summary);
+  const id = await createCmsArticle({
+    slug, category, title, summary, bodyText: facts,
+    facebookExcerpt, sourceName: 'Captura manual', sourceUrl: value(formData, 'sourceUrl') || undefined,
+    status,
+  });
+  revalidatePath('/'); revalidatePath('/sitemap.xml');
+  redirect(`/admin/noticias/${id}?saved=1`);
+}
 
 export async function createArticleAction(formData: FormData) {
   await requireAdmin();

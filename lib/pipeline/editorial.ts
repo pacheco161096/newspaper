@@ -24,6 +24,7 @@ Estilo:
 - 5 titulares candidatos; elige el más fiel a los hechos.
 - Bajada 1-2 frases. Cuerpo: introducción, desarrollo, datos clave. Solo lo que esté en el insumo.
 - NUNCA nombres medios de origen ni URLs. No sección Fuentes. No “según reportó”.
+- facebookExcerpt: resumen de la nota (1-2 frases, solo hechos), sin URL y sin nombrar otros medios. No pongas el enlace; otro sistema lo pone en el primer comentario.
 - heroImageUrl siempre null.
 Responde SOLO el JSON del contrato editorial.`;
 
@@ -77,11 +78,34 @@ export function shouldAutoPublish(draft: EditorialDraft) {
   return Boolean(draft.title?.trim() && draft.summary?.trim() && draft.bodyText?.trim());
 }
 
-const OUTLET_NAMES = ['Noticias PV', 'Noticiaspv', 'El Universal', 'Tribuna de la Bahía', 'Tribuna de la Bahia'];
+export const FACEBOOK_COMMENT_CTA = 'Más información: continúa leyendo en el primer comentario.';
+
+export function facebookPostText(excerpt: string | undefined, summary: string) {
+  const raw = stripOutletMentions(excerpt || summary || '')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/\s*(más información|continua leyendo|continúa leyendo|lee la nota completa)[\s\S]*$/i, '')
+    .trim();
+  const lead = raw.replace(/[.!?]?$/, '.');
+  const body = lead || 'Hay una nota nueva en Hola Vallarta.';
+  return `${body}\n\n${FACEBOOK_COMMENT_CTA}`.slice(0, 2000);
+}
+
+export function facebookFirstComment(articleUrl: string) {
+  return `Continúa leyendo la nota completa aquí:\n${articleUrl}`;
+}
+
+export function facebookInvite(excerpt: string | undefined, summary: string) {
+  return facebookPostText(excerpt, summary);
+}
+
+const OUTLET_NAMES = [
+  'Noticias PV', 'Noticiaspv', 'El Universal', 'Tribuna de la Bahía', 'Tribuna de la Bahia',
+  'Notiespacio PV', 'NotiEspacio PV', 'Notiespacio', 'NotiEspacio',
+];
 
 export function stripOutletMentions(text: string) {
   let result = text.replace(/\n+fuentes\s*[:.]?[\s\S]*$/i, '').trim();
-  result = result.replace(/https?:\/\/\S*(noticiaspv|eluniversal|record\.com\.mx|tribunadelabahia)\S*/gi, '');
+  result = result.replace(/https?:\/\/\S*(noticiaspv|eluniversal|record\.com\.mx|tribunadelabahia|notiespaciopv)\S*/gi, '');
   result = result.replace(/\b(?:de\s+acuerdo\s+con\s+el\s+medio|según\s+el\s+(?:medio|reporte\s+citado)|el\s+reporte\s+citado|información\s+publicada\s+por)\b[,:]?/gi, '');
   const names = [...OUTLET_NAMES, 'Récord', 'Record'];
   for (const name of names) {
@@ -167,15 +191,18 @@ export async function persistEditorial(document: EditorialDocument, draft: Edito
   const existing = await getCmsArticleByEventId(document.eventId);
   const slug = existing?.slug ?? await uniqueSlug(draft.title ?? 'noticia');
   const authorId = existing?.authorId ?? (await getDefaultCmsAuthor()).id;
+  const title = stripOutletMentions(draft.title ?? '');
+  const summary = stripOutletMentions(draft.summary ?? '');
+  const facebookExcerpt = facebookInvite(draft.facebookExcerpt, summary);
   const input: ArticleInput = {
     slug, category,
-    title: stripOutletMentions(draft.title ?? ''),
-    summary: stripOutletMentions(draft.summary ?? ''),
+    title,
+    summary,
     bodyText: stripOutletMentions(draft.bodyText ?? ''),
     heroImageUrl: undefined, imageAlt: undefined,
     seoTitle: draft.seoTitle ? stripOutletMentions(draft.seoTitle) : draft.seoTitle,
     seoDescription: draft.seoDescription ? stripOutletMentions(draft.seoDescription) : draft.seoDescription,
-    facebookExcerpt: draft.facebookExcerpt ? stripOutletMentions(draft.facebookExcerpt) : draft.facebookExcerpt,
+    facebookExcerpt,
     sourceName: sources[document.sourceKey].label,
     sourceUrl: document.sourceUrl,
     authorId,
