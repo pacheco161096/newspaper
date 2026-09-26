@@ -1,6 +1,6 @@
 # Webhook de Telegram
 
-Primera versión del bot: recibe un texto de un reportero activo, lo guarda en `pipeline.reports` y confirma en el chat. No redacta, no publica y no descarga archivos.
+El bot recibe texto o una fotografía de un reportero activo. El texto queda en `pipeline.reports`. De la fotografía solo se guarda el `file_id` en `pipeline.report_assets`; el archivo no se descarga. No redacta ni publica.
 
 ```text
 Reportero → Bot de Telegram → POST /api/telegram/webhook
@@ -26,17 +26,22 @@ Sin secreto, vacío o distinto, la ruta responde `401` sin decir cuál de los tr
 
 1. Compara el header con `timingSafeEqual`.
 2. Lee como máximo 256 KB y exige JSON con `update_id`.
-3. Solo persiste un mensaje de texto en un chat privado y de un humano. Ignora foto, video, audio, documento, ediciones y cualquier texto que empiece por `/`.
+3. Persiste un mensaje de texto o una fotografía en un chat privado y de un humano. Ignora video, audio, documento, ediciones y cualquier texto que empiece por `/`.
 4. Busca `pipeline.reporters.telegram_user_id`. La identidad es ese número, no el `@username`.
 5. Si el reportero no existe o no está `active`, no inserta y responde en el chat: `Este bot no está habilitado para esta cuenta.`
-6. Inserta `channel = telegram`, `status = received`, `raw_text` y `external_message_id = {chat_id}:{message_id}`.
-7. Si esa pareja ya existe, no crea otra fila. Telegram puede reenviar el update.
-8. Confirma `✅ Recibí tu información.` o `✅ Esta información ya había sido recibida.`
-9. Si Postgres falla, responde `500` para que Telegram reintente. Si `sendMessage` falla, el reporte ya guardado se conserva y la ruta igual responde `200`.
+6. Inserta `channel = telegram`, `status = received`, `raw_text` y `external_message_id = {chat_id}:{message_id}`. En una foto, `raw_text` es el caption, o vacío si no trae texto.
+7. De la foto guarda un solo `file_id`, el de mayor resolución, en `pipeline.report_assets` con `kind = photo` y `status = pending`. No llama a `getFile` ni baja el archivo.
+8. Si esa pareja chat + mensaje ya existe, no crea otra fila. El reintento tampoco duplica el `file_id`.
+9. Confirma `✅ Recibí tu información.` o `✅ Recibí tu fotografía.` Si ya existía: `✅ Esta información ya había sido recibida.` o `✅ Esta fotografía ya había sido recibida.`
+10. Si Postgres falla, responde `500` para que Telegram reintente. Si `sendMessage` falla, el reporte ya guardado se conserva y la ruta igual responde `200`.
 
-Fotos, `edited_message`, `channel_post` y `callback_query` responden `200` y no crean reporte.
+`edited_message`, `channel_post` y `callback_query` responden `200` y no crean reporte. Un álbum llega como un mensaje por foto; todavía no se agrupan.
 
-No hace falta una migración nueva. La tabla y la llave única `(channel, external_message_id)` salen de `database/migrations/001_reporting_foundation.sql`.
+La llave única `(channel, external_message_id)` sale de `001_reporting_foundation.sql`. Las fotos necesitan `013_report_assets.sql`:
+
+```bash
+npm run db:migrate:production
+```
 
 ## Configurar el bot
 

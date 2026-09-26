@@ -18,7 +18,7 @@ La tabla `report_contributions` es el libro de atribución y pago. Publicar, act
 
 ## Segundo MVP: Telegram
 
-El webhook `POST /api/telegram/webhook` ya recibe texto de un reportero activo y lo guarda en `pipeline.reports`, con `(channel, external_message_id)` como llave idempotente (`external_message_id` = `{chat_id}:{message_id}`). Todavía no valida el hecho, no lo vincula a un evento y no publica. Operación: [telegram-webhook.md](./telegram-webhook.md). El sitio no depende del bot.
+El webhook `POST /api/telegram/webhook` guarda el texto en `pipeline.reports` y el `file_id` de cada fotografía en `pipeline.report_assets`. La llave idempotente sigue siendo `(channel, external_message_id)`, con `external_message_id` = `{chat_id}:{message_id}`. Todavía no descarga el archivo, no valida el hecho, no lo vincula a un evento y no publica. Operación: [telegram-webhook.md](./telegram-webhook.md). El sitio no depende del bot.
 
 ## Integraciones pendientes
 

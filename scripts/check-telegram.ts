@@ -36,8 +36,16 @@ function request(body: string, secret: string | null = SECRET) {
   return new Request('http://localhost/api/telegram/webhook', { method: 'POST', headers, body });
 }
 
+const LARGE_FILE_ID = 'AgACAgIAAxkBAAIBYWlargephoto123456';
+const SMALL_FILE_ID = 'AgACAgIAAxkBAAIBYWsmallphoto123456';
+
 function deps(reporter: { id: string; status: string } | null, outcome: 'created' | 'duplicate' | 'throw' = 'created') {
-  const calls = { find: [] as string[], create: [] as Array<{ reporterId: string; chatId: string; messageId: number; rawText: string }>, send: [] as string[] };
+  const calls = {
+    find: [] as string[],
+    create: [] as Array<{ reporterId: string; chatId: string; messageId: number; rawText: string }>,
+    photos: [] as Array<{ reporterId: string; chatId: string; messageId: number; rawText: string; fileId: string; mediaGroupId: string | null }>,
+    send: [] as string[],
+  };
   const doubles: TelegramWebhookDeps = {
     async findReporterByTelegramUserId(telegramUserId) {
       calls.find.push(telegramUserId);
@@ -48,6 +56,12 @@ function deps(reporter: { id: string; status: string } | null, outcome: 'created
       if (outcome === 'throw') throw Object.assign(new Error('insert failed'), { code: '08006' });
       if (outcome === 'duplicate') return { outcome: 'duplicate' };
       return { outcome: 'created', id: '22222222-2222-4222-8222-222222222222' };
+    },
+    async createTelegramPhotoReport(input) {
+      calls.photos.push(input);
+      if (outcome === 'throw') throw Object.assign(new Error('insert failed'), { code: '08006' });
+      if (outcome === 'duplicate') return { outcome: 'duplicate' };
+      return { outcome: 'created', id: '33333333-3333-4333-8333-333333333333' };
     },
     async sendMessage(input) {
       calls.send.push(input.text);
@@ -112,8 +126,36 @@ async function main() {
   const wrongSecret = await post(textUpdate('Prueba de reporte'), { secret: 'no-coincide' });
   assert(wrongSecret.status === 401 && wrongSecret.calls.find.length === 0, 'webhook rechaza secret incorrecto');
 
-  const photo = await post({ update_id: 9, message: { message_id: 3, photo: [{ file_id: 'abc' }], caption: 'foto', chat: { id: 555, type: 'private' }, from: { id: 555 } } });
-  assert(photo.status === 200 && photo.json.reason === 'photo' && photo.calls.create.length === 0, 'foto no crea reporte');
+  const photo = await post({
+    update_id: 9,
+    message: {
+      message_id: 3,
+      photo: [
+        { file_id: SMALL_FILE_ID, width: 90, height: 90, file_size: 1000 },
+        { file_id: LARGE_FILE_ID, width: 1280, height: 720, file_size: 80000 },
+      ],
+      caption: 'Incendio en el centro',
+      media_group_id: 'album-1',
+      chat: { id: 555, type: 'private' },
+      from: { id: 555 },
+    },
+  });
+  assert(photo.status === 200 && photo.json.result === 'created' && photo.calls.create.length === 0 && photo.calls.photos[0]?.fileId === LARGE_FILE_ID && photo.calls.photos[0]?.rawText === 'Incendio en el centro' && photo.calls.photos[0]?.mediaGroupId === 'album-1' && photo.calls.send[0] === TELEGRAM_COPY.photoReceived, 'foto guarda el file_id grande');
+
+  const photoOnly = await post({ update_id: 10, message: { message_id: 4, photo: [{ file_id: LARGE_FILE_ID, width: 800, height: 600 }], chat: { id: 555, type: 'private' }, from: { id: 555 } } });
+  assert(photoOnly.json.result === 'created' && photoOnly.calls.photos[0]?.rawText === '', 'foto sin caption');
+
+  const duplicatePhoto = await post({ update_id: 11, message: { message_id: 5, photo: [{ file_id: LARGE_FILE_ID, width: 800, height: 600 }], chat: { id: 555, type: 'private' }, from: { id: 555 } } }, { outcome: 'duplicate' });
+  assert(duplicatePhoto.status === 200 && duplicatePhoto.json.result === 'duplicate' && duplicatePhoto.calls.send[0] === TELEGRAM_COPY.photoDuplicate, 'foto duplicada');
+
+  const unknownPhoto = await post({ update_id: 12, message: { message_id: 6, photo: [{ file_id: LARGE_FILE_ID, width: 800, height: 600 }], chat: { id: 555, type: 'private' }, from: { id: 555 } } }, { reporter: null });
+  assert(unknownPhoto.status === 200 && unknownPhoto.calls.photos.length === 0 && unknownPhoto.calls.send[0] === TELEGRAM_COPY.unauthorized, 'foto de usuario desconocido');
+
+  const video = await post({ update_id: 13, message: { message_id: 8, video: { file_id: LARGE_FILE_ID }, chat: { id: 555, type: 'private' }, from: { id: 555 } } });
+  assert(video.status === 200 && video.json.reason === 'video' && video.calls.photos.length === 0 && video.calls.create.length === 0, 'video no crea reporte');
+
+  const shortFileId = await post({ update_id: 14, message: { message_id: 9, photo: [{ file_id: 'abc' }], chat: { id: 555, type: 'private' }, from: { id: 555 } } });
+  assert(shortFileId.status === 200 && shortFileId.json.reason === 'invalid_photo' && shortFileId.calls.photos.length === 0, 'file_id invalido');
 
   const parsed = parseTelegramUpdate(textUpdate('  Hola  '));
   assert(parsed.kind === 'text' && parsed.update.text === 'Hola' && parsed.update.username === 'ana' && parsed.update.fromId === '555', 'parser de texto');
@@ -130,9 +172,10 @@ async function main() {
   const logs: string[] = [];
   console.warn = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
   await post(textUpdate('Prueba de reporte secreta'));
+  await post({ update_id: 15, message: { message_id: 16, photo: [{ file_id: LARGE_FILE_ID, width: 800, height: 600 }], caption: 'Incendio secreto', chat: { id: 555, type: 'private' }, from: { id: 555 } } });
   console.warn = () => undefined;
   const logged = logs.join('\n');
-  assert(!logged.includes('Prueba de reporte secreta') && !logged.includes(SECRET), 'el log no incluye texto ni secret');
+  assert(!logged.includes('Prueba de reporte secreta') && !logged.includes(SECRET) && !logged.includes(LARGE_FILE_ID) && !logged.includes('Incendio secreto'), 'el log no incluye texto, file_id ni secret');
 
   const token = '123456789:AAHexampletokenvalue1234567890';
   process.env.TELEGRAM_BOT_TOKEN = token;

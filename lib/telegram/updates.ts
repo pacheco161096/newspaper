@@ -1,5 +1,7 @@
 const MAX_TEXT_LENGTH = 4096;
-const MEDIA_KEYS = ['photo', 'video', 'audio', 'document', 'voice', 'video_note', 'sticker', 'animation'] as const;
+const MAX_CAPTION_LENGTH = 1024;
+const MAX_PHOTO_SIZES = 8;
+const UNSUPPORTED_MEDIA_KEYS = ['video', 'audio', 'document', 'voice', 'video_note', 'sticker', 'animation'] as const;
 const IGNORED_UPDATE_KEYS = [
   'edited_message',
   'channel_post',
@@ -20,8 +22,22 @@ export type TelegramTextUpdate = {
   text: string;
 };
 
+export type TelegramPhotoUpdate = {
+  updateId: number;
+  messageId: number;
+  chatId: string;
+  fromId: string;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  caption: string;
+  fileId: string;
+  mediaGroupId: string | null;
+};
+
 export type TelegramUpdateParse =
   | { kind: 'text'; update: TelegramTextUpdate }
+  | { kind: 'photo'; update: TelegramPhotoUpdate }
   | { kind: 'ignore'; updateId: number; reason: string }
   | { kind: 'invalid' };
 
@@ -88,12 +104,43 @@ export function readText(message: unknown) {
   return message.text;
 }
 
+export function readCaption(message: unknown) {
+  if (!isRecord(message) || typeof message.caption !== 'string') return '';
+  return message.caption.replaceAll('\u0000', '').trim();
+}
+
+function isFileId(value: string) {
+  return /^[\x21-\x7E]{16,512}$/.test(value);
+}
+
+export function readLargestPhotoFileId(message: unknown) {
+  if (!isRecord(message) || !Array.isArray(message.photo)) return null;
+  if (!message.photo.length || message.photo.length > MAX_PHOTO_SIZES) return null;
+  let best: { fileId: string; area: number; fileSize: number } | null = null;
+  for (const item of message.photo) {
+    if (!isRecord(item) || typeof item.file_id !== 'string' || !isFileId(item.file_id)) return null;
+    const width = typeof item.width === 'number' && item.width > 0 ? item.width : 0;
+    const height = typeof item.height === 'number' && item.height > 0 ? item.height : 0;
+    const fileSize = typeof item.file_size === 'number' && item.file_size > 0 ? item.file_size : 0;
+    const area = width * height;
+    if (!best || area > best.area || (area === best.area && fileSize > best.fileSize)) {
+      best = { fileId: item.file_id, area, fileSize };
+    }
+  }
+  return best?.fileId ?? null;
+}
+
+export function readMediaGroupId(message: unknown) {
+  if (!isRecord(message) || typeof message.media_group_id !== 'string') return null;
+  return /^[A-Za-z0-9_-]{1,128}$/.test(message.media_group_id) ? message.media_group_id : null;
+}
+
 function ignoredUpdateReason(update: Record<string, unknown>) {
   return IGNORED_UPDATE_KEYS.find((key) => key in update) ?? null;
 }
 
-function mediaReason(message: Record<string, unknown>) {
-  return MEDIA_KEYS.find((key) => key in message) ?? null;
+function unsupportedMediaReason(message: Record<string, unknown>) {
+  return UNSUPPORTED_MEDIA_KEYS.find((key) => key in message) ?? null;
 }
 
 export function parseTelegramUpdate(body: unknown): TelegramUpdateParse {
@@ -107,8 +154,8 @@ export function parseTelegramUpdate(body: unknown): TelegramUpdateParse {
   const message = readMessage(body);
   if (!message) return { kind: 'ignore', updateId, reason: 'no_message' };
 
-  const media = mediaReason(message);
-  if (media) return { kind: 'ignore', updateId, reason: media };
+  const unsupported = unsupportedMediaReason(message);
+  if (unsupported) return { kind: 'ignore', updateId, reason: unsupported };
 
   const chat = isRecord(message.chat) ? message.chat : null;
   if (!chat || chat.type !== 'private') return { kind: 'ignore', updateId, reason: 'not_private' };
@@ -117,10 +164,34 @@ export function parseTelegramUpdate(body: unknown): TelegramUpdateParse {
   const messageId = readMessageId(message);
   const chatId = readChatId(message);
   const fromId = readFromId(message);
-  const text = readText(message);
-  if (messageId === null || chatId === null || fromId === null || text === null) {
+  if (messageId === null || chatId === null || fromId === null) {
     return { kind: 'ignore', updateId, reason: 'unsupported_message' };
   }
+
+  if ('photo' in message) {
+    const fileId = readLargestPhotoFileId(message);
+    if (!fileId) return { kind: 'ignore', updateId, reason: 'invalid_photo' };
+    const caption = readCaption(message);
+    if (caption.length > MAX_CAPTION_LENGTH) return { kind: 'ignore', updateId, reason: 'caption_too_long' };
+    return {
+      kind: 'photo',
+      update: {
+        updateId,
+        messageId,
+        chatId,
+        fromId,
+        username: readUsername(message),
+        firstName: readFirstName(message),
+        lastName: readLastName(message),
+        caption,
+        fileId,
+        mediaGroupId: readMediaGroupId(message),
+      },
+    };
+  }
+
+  const text = readText(message);
+  if (text === null) return { kind: 'ignore', updateId, reason: 'unsupported_message' };
 
   const normalized = text.replaceAll('\u0000', '').trim();
   if (!normalized) return { kind: 'ignore', updateId, reason: 'empty_text' };

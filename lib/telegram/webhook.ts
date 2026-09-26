@@ -1,5 +1,5 @@
-import { createTelegramReport, findReporterByTelegramUserId } from '../pipeline/reports';
-import type { CreateTelegramReportInput, CreateTelegramReportResult, TelegramReporter } from '../pipeline/reports';
+import { createTelegramPhotoReport, createTelegramReport, findReporterByTelegramUserId } from '../pipeline/reports';
+import type { CreateTelegramPhotoReportInput, CreateTelegramReportInput, CreateTelegramReportResult, TelegramReporter } from '../pipeline/reports';
 import { isAuthorizedTelegramWebhook } from './auth';
 import { sendMessage as deliverTelegramMessage } from './client';
 import { parseTelegramUpdate } from './updates';
@@ -9,18 +9,22 @@ const MAX_BODY_BYTES = 256 * 1024;
 export const TELEGRAM_COPY = {
   received: '✅ Recibí tu información.',
   duplicate: '✅ Esta información ya había sido recibida.',
+  photoReceived: '✅ Recibí tu fotografía.',
+  photoDuplicate: '✅ Esta fotografía ya había sido recibida.',
   unauthorized: 'Este bot no está habilitado para esta cuenta.',
 } as const;
 
 export type TelegramWebhookDeps = {
   findReporterByTelegramUserId: (telegramUserId: string) => Promise<TelegramReporter | null>;
   createTelegramReport: (input: CreateTelegramReportInput) => Promise<CreateTelegramReportResult>;
+  createTelegramPhotoReport: (input: CreateTelegramPhotoReportInput) => Promise<CreateTelegramReportResult>;
   sendMessage: (input: { chatId: string; text: string }) => Promise<void>;
 };
 
 const defaultDeps: TelegramWebhookDeps = {
   findReporterByTelegramUserId,
   createTelegramReport,
+  createTelegramPhotoReport,
   sendMessage: ({ chatId, text }) => deliverTelegramMessage({ chatId, text }),
 };
 
@@ -113,21 +117,36 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
     return Response.json({ ok: true, result: 'unauthorized' });
   }
 
+  const isPhoto = parsed.kind === 'photo';
   let saved: CreateTelegramReportResult;
   try {
-    saved = await deps.createTelegramReport({
-      reporterId: reporter.id,
-      chatId: update.chatId,
-      messageId: update.messageId,
-      rawText: update.text,
-    });
+    if (parsed.kind === 'photo') {
+      saved = await deps.createTelegramPhotoReport({
+        reporterId: reporter.id,
+        chatId: parsed.update.chatId,
+        messageId: parsed.update.messageId,
+        rawText: parsed.update.caption,
+        fileId: parsed.update.fileId,
+        mediaGroupId: parsed.update.mediaGroupId,
+      });
+    } else {
+      saved = await deps.createTelegramReport({
+        reporterId: reporter.id,
+        chatId: parsed.update.chatId,
+        messageId: parsed.update.messageId,
+        rawText: parsed.update.text,
+      });
+    }
   } catch (error) {
     logTelegram('error', { ...logBase, reporter_id: reporter.id, result: 'db_error', error: safeErrorCode(error) });
     return Response.json({ ok: false }, { status: 500 });
   }
 
   const created = saved.outcome === 'created';
-  logTelegram('warn', { ...logBase, reporter_id: reporter.id, result: saved.outcome });
-  await confirm(deps, update.chatId, created ? TELEGRAM_COPY.received : TELEGRAM_COPY.duplicate, { ...logBase, reporter_id: reporter.id });
+  logTelegram('warn', { ...logBase, reporter_id: reporter.id, result: saved.outcome, kind: isPhoto ? 'photo' : 'text' });
+  const reply = isPhoto
+    ? (created ? TELEGRAM_COPY.photoReceived : TELEGRAM_COPY.photoDuplicate)
+    : (created ? TELEGRAM_COPY.received : TELEGRAM_COPY.duplicate);
+  await confirm(deps, update.chatId, reply, { ...logBase, reporter_id: reporter.id });
   return Response.json({ ok: true, result: saved.outcome });
 }

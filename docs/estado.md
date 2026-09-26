@@ -42,7 +42,7 @@ Cron → descubrir → guardar fuente → clasificar → resolver evento/duplica
 | Base | PostgreSQL (`pg`), esquemas `cms` y `pipeline` |
 | Producción | Neon (pool para la app, directo para migraciones) |
 | Colas / cron | cron-job.org → `POST /api/cron/*` |
-| Telegram | Webhook de texto hacia `pipeline.reports`. Sin fotos, IA ni publicación |
+| Telegram | Webhook de texto y `file_id` de fotos. Sin descarga, IA ni publicación |
 
 ### Sitio público
 
@@ -94,7 +94,7 @@ Duplicados: `(source_key, external_id)` + resolver por titular (más estricto en
 - [ ] Conectar `holavallarta.mx`.
 - [ ] Cambiar contraseña temporal del CMS.
 - [ ] GA4 y Search Console.
-- [ ] Bot de Telegram: el webhook ya guarda texto en `pipeline.reports`. Faltan fotos, envíos agrupados, IA, publicación y pagos. Ver [telegram-webhook.md](./telegram-webhook.md).
+- [ ] Bot de Telegram: el webhook guarda texto y el `file_id` de cada foto. Faltan descarga, álbumes, IA, publicación y pagos. Ver [telegram-webhook.md](./telegram-webhook.md).
 
 ## Decisiones ya cerradas
 
