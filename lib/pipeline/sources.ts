@@ -63,8 +63,8 @@ export const LOCAL_SOURCE_KEYS = ['noticias_pv', 'notiespacio_pv', 'tribuna_bahi
 
 export const LOCAL_SOURCE_PRIORITY_SQL = `case when source_key in ('noticias_pv', 'notiespacio_pv', 'tribuna_bahia') then 0 else 1 end`;
 export const CURRENT_MEXICO_DAY_SQL = `(now() at time zone 'America/Mexico_City')::date`;
-export const SOURCE_NEWS_DAY_SQL = `(coalesce(source_published_at, discovered_at) at time zone 'America/Mexico_City')::date`;
-export const CURRENT_NEWS_SQL = `${SOURCE_NEWS_DAY_SQL} = ${CURRENT_MEXICO_DAY_SQL}`;
+export const SOURCE_NEWS_DAY_SQL = `(source_published_at at time zone 'America/Mexico_City')::date`;
+export const CURRENT_NEWS_SQL = `source_published_at is not null and ${SOURCE_NEWS_DAY_SQL} = ${CURRENT_MEXICO_DAY_SQL}`;
 export const CRON_SOURCE_ORDER_SQL = `case when ${CURRENT_NEWS_SQL} then 0 else 1 end, coalesce(source_published_at, discovered_at) desc nulls last, ${LOCAL_SOURCE_PRIORITY_SQL}`;
 
 export const LOCAL_ARTICLE_PRIORITY_SQL = `case when a.source_name in ('Noticias PV', 'Notiespacio PV', 'Tribuna de la Bahía') or a.category = 'jalisco' then 0 else 1 end`;
@@ -80,7 +80,7 @@ export function mexicoCityDay(value: Date | string | null | undefined) {
 }
 
 export function isCurrentMexicoNewsDay(value: Date | string | null | undefined) {
-  if (!value) return true;
+  if (!value) return false;
   return mexicoCityDay(value) === mexicoCityDay(new Date());
 }
 

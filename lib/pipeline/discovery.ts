@@ -294,7 +294,7 @@ export async function discoverSource(source: SourceDefinition): Promise<Discover
     : source.adapter === 'news-sitemap'
       ? await discoverNewsSitemap(source)
       : await discoverRss(source);
-  const current = found.filter((item) => isCurrentMexicoNewsDay(item.sourcePublishedAt ?? item.sourceModifiedAt));
+  const current = found.filter((item) => isCurrentMexicoNewsDay(item.sourcePublishedAt));
   const accepted = newestFirst(current.filter((item) => accept(source, item.rawTitle, item.rawExcerpt)));
   return {
     sourceKey: source.key,
