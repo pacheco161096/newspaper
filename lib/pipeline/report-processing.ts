@@ -132,6 +132,7 @@ export async function processReporterSubmission(claimed: ClaimedReporterSubmissi
 
   let storedUrl: string | undefined;
   let imagesPending = false;
+  const assetErrors: string[] = [];
   for (const asset of assets.rows) {
     if (asset.status === 'stored' && asset.public_url) {
       storedUrl ??= asset.public_url;
@@ -152,6 +153,8 @@ export async function processReporterSubmission(claimed: ClaimedReporterSubmissi
       const code = reporterErrorCode(error);
       const attempts = asset.attempt_count + (burnsAssetAttempt(code) ? 1 : 0);
       const failed = attempts >= ASSET_ATTEMPTS && burnsAssetAttempt(code);
+      assetErrors.push(code);
+      console.warn(JSON.stringify({ source: 'telegram_reports', submission_id: claimed.id, asset_id: asset.id, error: code }));
       await getPostgresPool().query(
         `update pipeline.report_assets
             set status = case when $4 then 'failed' else 'pending' end,
@@ -170,7 +173,7 @@ export async function processReporterSubmission(claimed: ClaimedReporterSubmissi
     if (heroSet && hero) await setCmsArticleHero(article.id, hero, article.title.slice(0, 180));
     const editorialStatus = claimed.editorialStatus === 'processing' ? 'drafted' : claimed.editorialStatus;
     await settle(claimed.id, { editorialStatus, error: null, attempts: claimed.attemptCount, imagesPending, retryEditorial: false });
-    return { id: claimed.id, articleId: article.id, slug: article.slug, category: article.category, rewritten: false, heroSet, published: article.status === 'published', pendingImages: imagesPending };
+    return { id: claimed.id, articleId: article.id, slug: article.slug, category: article.category, rewritten: false, heroSet, published: article.status === 'published', pendingImages: imagesPending, assetErrors };
   }
 
   try {
@@ -200,7 +203,7 @@ export async function processReporterSubmission(claimed: ClaimedReporterSubmissi
       status: 'unpublished',
     });
     await settle(claimed.id, { editorialStatus: 'drafted', error: null, attempts: claimed.attemptCount + 1, imagesPending, retryEditorial: false });
-    return { id: claimed.id, articleId: article.id, slug: article.slug, category, rewritten: true, heroSet: Boolean(hero), published: false, pendingImages: imagesPending };
+    return { id: claimed.id, articleId: article.id, slug: article.slug, category, rewritten: true, heroSet: Boolean(hero), published: false, pendingImages: imagesPending, assetErrors };
   } catch (error) {
     const code = reporterErrorCode(error);
     const attempts = claimed.attemptCount + 1;
@@ -213,6 +216,6 @@ export async function processReporterSubmission(claimed: ClaimedReporterSubmissi
       imagesPending,
       retryEditorial,
     });
-    return { id: claimed.id, articleId: article.id, error: code, heroSet: Boolean(hero && !article.heroImageUrl) };
+    return { id: claimed.id, articleId: article.id, error: code, heroSet: Boolean(hero && !article.heroImageUrl), assetErrors };
   }
 }

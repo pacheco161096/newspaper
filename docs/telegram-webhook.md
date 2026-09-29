@@ -1,6 +1,6 @@
 # Webhook de Telegram
 
-El bot recibe texto o una fotografía de un reportero activo. `/enviar` deja un borrador con el texto crudo. Un cron aparte descarga la foto y, si la nota sigue sin publicar, la reescribe. No publica sola.
+El bot recibe texto o una fotografía de un reportero activo. `/enviar` deja un borrador con el texto crudo. Un cron aparte descarga la foto y, si la nota sigue sin publicar, la reescribe. Publicar es el botón del `/admin`. Ese botón refresca la portada, la categoría, la ficha y el sitemap. No hay RSS ni publicación automática.
 
 ```text
 Reportero → Bot de Telegram → POST /api/telegram/webhook
@@ -35,14 +35,14 @@ Sin secreto, vacío o distinto, la ruta responde `401` sin decir cuál de los tr
 6. Inserta `channel = telegram`, `status = received`, `raw_text` y `external_message_id = {chat_id}:{message_id}`. En una foto, `raw_text` es el caption, o vacío si no trae texto. El reporte queda ligado a un envío en `pipeline.report_submissions`.
 7. Si el reportero ya tiene un envío `open` o `incomplete` que no venció, el mensaje se agrega. Si no, se abre uno nuevo por 15 minutos. Cada mensaje nuevo renueva ese plazo.
 8. De la foto guarda un solo `file_id`, el de mayor resolución, en `pipeline.report_assets` con `kind = photo` y `status = pending`. No llama a `getFile` ni baja el archivo. Las fotos de un álbum comparten `media_group_id` y entran al mismo envío.
-9. Si esa pareja chat + mensaje ya existe, no crea otra fila ni mueve el envío.
+9. Si esa pareja chat + mensaje ya existe, no crea otra fila ni mueve el envío. Un `update_id` ya visto en `pipeline.telegram_updates` responde 200 y no vuelve a confirmar. Si Postgres falla, ese `update_id` se borra para que Telegram pueda reintentar.
 10. `/enviar` con texto cierra el envío y crea un borrador: `pipeline.news_events`, `pipeline.report_contributions` y `cms.articles` en `unpublished`. El titular sale de la primera línea. No llama a OpenAI ni publica. Si solo hay fotos, queda `incomplete`. `/cancelar` lo marca `cancelled`. Repetir el mismo `/enviar` no crea otra nota.
 11. `POST /api/cron/reports` con `CRON_SECRET` toma esos borradores. Descarga el `file_id` con `getFile`, lo guarda en Vercel Blob y escribe la primera URL en `hero_image_url`. Si la nota sigue `unpublished`, la reescribe con el mismo modelo editorial y la deja sin publicar. Si ya está publicada, solo agrega la imagen cuando el campo está vacío.
 12. Confirma la recepción, el agregado, el cierre o la cancelación con un texto corto. Si Postgres falla, responde `500`. Si `sendMessage` falla, lo ya guardado se conserva y la ruta responde `200`.
 
 `edited_message`, `channel_post` y `callback_query` responden `200` y no crean reporte. Esta fase no redacta ni publica.
 
-Hacen falta `013_report_assets.sql`, `014_report_submissions.sql`, `015_submission_drafts.sql` y `016_report_processing.sql`:
+Hacen falta `013_report_assets.sql` a `017_telegram_updates.sql`:
 
 ```bash
 npm run db:migrate:production

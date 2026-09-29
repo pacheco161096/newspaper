@@ -1,9 +1,9 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createAdminSession, destroyAdminSession, requireAdmin, validateAdminCredentials } from '@/lib/cms/auth';
-import { createCmsArticle, createCmsAuthor, setCmsArticleStatus, updateCmsArticle, updateCmsAuthor } from '@/lib/cms/repository';
+import { createCmsArticle, createCmsAuthor, getCmsArticle, setCmsArticleStatus, updateCmsArticle, updateCmsAuthor } from '@/lib/cms/repository';
+import { revalidateArticle } from '@/lib/cms/revalidate';
 import type { ArticleInput, ArticleStatus } from '@/lib/cms/types';
 import type { CategorySlug } from '@/lib/content';
 import { facebookInvite, stripOutletMentions, uniqueSlug } from '@/lib/pipeline/editorial';
@@ -55,29 +55,36 @@ export async function importFactsAction(formData: FormData) {
     facebookExcerpt, sourceName: 'Captura manual', sourceUrl: value(formData, 'sourceUrl') || undefined,
     status,
   });
-  revalidatePath('/'); revalidatePath('/sitemap.xml');
+  if (status === 'published') revalidateArticle(slug, category);
   redirect(`/admin/noticias/${id}?saved=1`);
 }
 
 export async function createArticleAction(formData: FormData) {
   await requireAdmin();
-  const id = await createCmsArticle(articleInput(formData));
-  revalidatePath('/'); revalidatePath('/sitemap.xml');
+  const input = articleInput(formData);
+  const id = await createCmsArticle(input);
+  if (input.status === 'published') revalidateArticle(input.slug, input.category);
   redirect(`/admin/noticias/${id}?saved=1`);
 }
 
 export async function updateArticleAction(id: string, formData: FormData) {
   await requireAdmin();
-  await updateCmsArticle(id, articleInput(formData));
-  revalidatePath('/'); revalidatePath('/sitemap.xml');
-  revalidatePath(`/noticias/${value(formData, 'slug')}`);
+  const previous = await getCmsArticle(id);
+  const input = articleInput(formData);
+  await updateCmsArticle(id, input);
+  if (previous?.status === 'published' || input.status === 'published') {
+    revalidateArticle(input.slug, input.category);
+    if (previous && (previous.slug !== input.slug || previous.category !== input.category)) revalidateArticle(previous.slug, previous.category);
+  }
   redirect(`/admin/noticias/${id}?saved=1`);
 }
 
 export async function changeArticleStatusAction(id: string, status: ArticleStatus) {
   await requireAdmin();
+  const article = await getCmsArticle(id);
+  if (!article) throw new Error('ARTICLE_NOT_FOUND');
   await setCmsArticleStatus(id, status);
-  revalidatePath('/'); revalidatePath('/sitemap.xml');
+  revalidateArticle(article.slug, article.category);
   redirect(`/admin/noticias/${id}?saved=1`);
 }
 

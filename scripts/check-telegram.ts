@@ -208,6 +208,26 @@ async function main() {
   assert(shouldRewriteReporterArticle('unpublished', 'processing') && !shouldRewriteReporterArticle('published', 'processing'), 'no reescribe una nota ya publicada');
   assert(!reporterErrorRetries('EDITORIAL_INSUFFICIENT_FACTS') && reporterErrorRetries('BLOB_READ_WRITE_TOKEN_MISSING'), 'reintento de redacción');
 
+  const seen = new Set<number>();
+  const released: number[] = [];
+  const tracked = deps({ id: REPORTER_ID, status: 'active' });
+  tracked.doubles.claimTelegramUpdate = async (id) => {
+    if (seen.has(id)) return 'duplicate';
+    seen.add(id);
+    return 'new';
+  };
+  tracked.doubles.markTelegramUpdate = async () => undefined;
+  tracked.doubles.releaseTelegramUpdate = async (id) => { released.push(id); seen.delete(id); };
+  const firstUpdate = await handleTelegramWebhook(request(JSON.stringify(textUpdate('Prueba de reporte'))), tracked.doubles);
+  const secondUpdate = await handleTelegramWebhook(request(JSON.stringify(textUpdate('Prueba de reporte'))), tracked.doubles);
+  assert(firstUpdate.status === 200 && secondUpdate.status === 200 && (await secondUpdate.json()).result === 'duplicate_update' && tracked.calls.send.length === 1 && tracked.calls.messages.length === 1, 'update repetido no vuelve a confirmar');
+
+  const failing = deps({ id: REPORTER_ID, status: 'active' }, 'throw');
+  failing.doubles.claimTelegramUpdate = async () => 'new';
+  failing.doubles.releaseTelegramUpdate = async (id) => { released.push(id); };
+  const failedUpdate = await handleTelegramWebhook(request(JSON.stringify(textUpdate('Prueba de reporte'))), failing.doubles);
+  assert(failedUpdate.status === 500 && released.includes(100), 'un error de postgres libera el update');
+
   const dbError = await post(textUpdate('Prueba de reporte'), { outcome: 'throw' });
   assert(dbError.status === 500 && dbError.calls.send.length === 0, 'error de postgres');
 

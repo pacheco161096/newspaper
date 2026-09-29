@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       results.push({ id: submission.id, error: code });
     }
   }
-  const ok = results.every((item) => !('error' in item));
+  const ok = results.every((item) => !('error' in item) && !('assetErrors' in item && item.assetErrors.length > 0));
   return Response.json({
     ok,
     executedAt: new Date().toISOString(),

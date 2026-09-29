@@ -1,4 +1,5 @@
 import { findReporterByTelegramUserId, telegramExternalMessageId } from '../pipeline/reports';
+import { claimTelegramUpdate, markTelegramUpdate, releaseTelegramUpdate } from '../pipeline/telegram-updates';
 import type { TelegramReporter } from '../pipeline/reports';
 import { cancelTelegramSubmission, finishTelegramSubmission, receiveTelegramMessage } from '../pipeline/submissions';
 import type { CancelTelegramSubmissionResult, FinishTelegramSubmissionResult, ReceiveTelegramMessageInput, ReceiveTelegramMessageResult } from '../pipeline/submissions';
@@ -29,6 +30,9 @@ export type TelegramWebhookDeps = {
   finishTelegramSubmission: (reporterId: string, closeExternalMessageId?: string) => Promise<FinishTelegramSubmissionResult>;
   cancelTelegramSubmission: (reporterId: string) => Promise<CancelTelegramSubmissionResult>;
   sendMessage: (input: { chatId: string; text: string }) => Promise<void>;
+  claimTelegramUpdate?: (updateId: number) => Promise<'new' | 'duplicate'>;
+  markTelegramUpdate?: (updateId: number, result: string) => Promise<void>;
+  releaseTelegramUpdate?: (updateId: number) => Promise<void>;
 };
 
 const defaultDeps: TelegramWebhookDeps = {
@@ -37,6 +41,9 @@ const defaultDeps: TelegramWebhookDeps = {
   finishTelegramSubmission,
   cancelTelegramSubmission,
   sendMessage: ({ chatId, text }) => deliverTelegramMessage({ chatId, text }),
+  claimTelegramUpdate,
+  markTelegramUpdate,
+  releaseTelegramUpdate,
 };
 
 function logTelegram(level: 'error' | 'warn', fields: Record<string, string | number | null>) {
@@ -101,9 +108,37 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
 
   const parsed = parseTelegramUpdate(json);
   if (parsed.kind === 'invalid') return Response.json({ ok: false }, { status: 400 });
+
+  const updateId = parsed.kind === 'ignore' ? parsed.updateId : parsed.update.updateId;
+  let claimedUpdate = false;
+  if (deps.claimTelegramUpdate) {
+    try {
+      const claim = await deps.claimTelegramUpdate(updateId);
+      if (claim === 'duplicate') {
+        logTelegram('warn', { update_id: updateId, chat_id: null, reporter_id: null, result: 'duplicate_update' });
+        return Response.json({ ok: true, result: 'duplicate_update' });
+      }
+      claimedUpdate = true;
+    } catch (error) {
+      logTelegram('error', { update_id: updateId, chat_id: null, reporter_id: null, result: 'db_error', error: safeErrorCode(error) });
+      return Response.json({ ok: false }, { status: 500 });
+    }
+  }
+
+  const finish = async (response: Response, result: string) => {
+    if (!claimedUpdate) return response;
+    try {
+      if (response.status >= 500) await deps.releaseTelegramUpdate?.(updateId);
+      else await deps.markTelegramUpdate?.(updateId, result);
+    } catch (error) {
+      logTelegram('error', { update_id: updateId, chat_id: null, reporter_id: null, result: 'update_log_failed', error: safeErrorCode(error) });
+    }
+    return response;
+  };
+
   if (parsed.kind === 'ignore') {
     logTelegram('warn', { update_id: parsed.updateId, chat_id: null, reporter_id: null, result: 'ignored', reason: parsed.reason });
-    return Response.json({ ok: true, result: 'ignored', reason: parsed.reason });
+    return finish(Response.json({ ok: true, result: 'ignored', reason: parsed.reason }), 'ignored');
   }
 
   const { update } = parsed;
@@ -114,7 +149,7 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
     reporter = await deps.findReporterByTelegramUserId(update.fromId);
   } catch (error) {
     logTelegram('error', { ...logBase, result: 'db_error', error: safeErrorCode(error) });
-    return Response.json({ ok: false }, { status: 500 });
+    return finish(Response.json({ ok: false }, { status: 500 }), 'db_error');
   }
 
   if (!reporter || reporter.status !== 'active') {
@@ -125,7 +160,7 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
       result: reporter ? 'suspended' : 'unknown',
     });
     await confirm(deps, update.chatId, TELEGRAM_COPY.unauthorized, logBase);
-    return Response.json({ ok: true, result: 'unauthorized' });
+    return finish(Response.json({ ok: true, result: 'unauthorized' }), reporter ? 'suspended' : 'unknown');
   }
 
   if (parsed.kind === 'command') {
@@ -136,7 +171,7 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
         : await deps.finishTelegramSubmission(reporter.id, telegramExternalMessageId(update.chatId, update.messageId));
     } catch (error) {
       logTelegram('error', { ...logBase, reporter_id: reporter.id, result: 'db_error', error: safeErrorCode(error) });
-      return Response.json({ ok: false }, { status: 500 });
+      return finish(Response.json({ ok: false }, { status: 500 }), 'db_error');
     }
     const reply = result === 'ready' ? TELEGRAM_COPY.ready
       : result === 'needs_text' ? TELEGRAM_COPY.needsText
@@ -145,7 +180,7 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
             : TELEGRAM_COPY.noSubmission;
     logTelegram('warn', { ...logBase, reporter_id: reporter.id, result, kind: parsed.update.command });
     await confirm(deps, update.chatId, reply, { ...logBase, reporter_id: reporter.id });
-    return Response.json({ ok: true, result });
+    return finish(Response.json({ ok: true, result }), result);
   }
 
   let saved: ReceiveTelegramMessageResult;
@@ -171,7 +206,7 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
     }
   } catch (error) {
     logTelegram('error', { ...logBase, reporter_id: reporter.id, result: 'db_error', error: safeErrorCode(error) });
-    return Response.json({ ok: false }, { status: 500 });
+    return finish(Response.json({ ok: false }, { status: 500 }), 'db_error');
   }
 
   const isPhoto = parsed.kind === 'photo';
@@ -181,6 +216,7 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
       ? (isPhoto ? TELEGRAM_COPY.photoAppended : TELEGRAM_COPY.textAppended)
       : (isPhoto ? TELEGRAM_COPY.photoOpened : TELEGRAM_COPY.textOpened);
   logTelegram('warn', { ...logBase, reporter_id: reporter.id, result: saved.outcome === 'duplicate' ? 'duplicate' : saved.placement, kind: isPhoto ? 'photo' : 'text' });
+  const outcome = saved.outcome === 'duplicate' ? 'duplicate' : 'created';
   await confirm(deps, update.chatId, reply, { ...logBase, reporter_id: reporter.id });
-  return Response.json({ ok: true, result: saved.outcome === 'duplicate' ? 'duplicate' : 'created' });
+  return finish(Response.json({ ok: true, result: outcome }), outcome);
 }
