@@ -1,6 +1,6 @@
 import { claimArticlesForFacebook, countFacebookSentToday, listFacebookQueue, markFacebookFailed, markFacebookRateLimited, markFacebookSent, skipStaleFacebookArticles } from '../../../../lib/cms/repository';
 import { facebookFirstComment, facebookPostText } from '../../../../lib/pipeline/editorial';
-import { publishToFacebook, waitForPublicArticle } from '../../../../lib/cms/zernio';
+import { facebookMediaItem, publishToFacebook, waitForPublicArticle } from '../../../../lib/cms/zernio';
 import { isAuthorizedCron } from '../../../../lib/server/cron-auth';
 
 export const runtime = 'nodejs';
@@ -40,9 +40,10 @@ export async function POST(request: Request) {
         articleId: article.id,
         message,
         firstComment: facebookFirstComment(publicUrl),
+        imageUrl: article.heroImageUrl,
       });
       await markFacebookSent(article.id, published.postId);
-      results.push({ id: article.id, slug: article.slug, status: 'sent', zernioPostId: published.postId, url: publicUrl });
+      results.push({ id: article.id, slug: article.slug, status: 'sent', zernioPostId: published.postId, url: publicUrl, image: Boolean(facebookMediaItem(article.heroImageUrl)) });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
       if (message.includes('429') || /daily post limit/i.test(message)) {

@@ -4,6 +4,7 @@ import { telegramExternalMessageId } from '../lib/pipeline/reports';
 import { parseReporterDraft, shouldRewriteReporterArticle } from '../lib/pipeline/editorial';
 import { reporterErrorRetries } from '../lib/pipeline/report-processing';
 import { draftFromReporterTexts } from '../lib/pipeline/submissions';
+import { facebookMediaItem } from '../lib/cms/zernio';
 import { telegramPhotoMeta } from '../lib/telegram/client';
 import { parseTelegramUpdate } from '../lib/telegram/updates';
 import { handleTelegramWebhook, TELEGRAM_COPY } from '../lib/telegram/webhook';
@@ -199,6 +200,8 @@ async function main() {
   assert(telegramExternalMessageId('555', 7) === '555:7', 'external_message_id');
   const draft = draftFromReporterTexts(['  Incendio en el centro  ', '', 'Hay dos heridos.']);
   assert(draft.title === 'Incendio en el centro' && draft.summary.startsWith('Incendio en el centro') && draft.body.includes('Hay dos heridos.'), 'borrador usa el texto crudo');
+  assert(facebookMediaItem('https://example.public.blob.vercel-storage.com/telegram/a.jpg')?.type === 'image', 'facebook acepta la url publica');
+  assert(facebookMediaItem('https://api.telegram.org/file/bot123:ABC/photo.jpg') === null, 'facebook no reenvia el archivo de Telegram');
   assert(telegramPhotoMeta('photos/file_1.jpg').contentType === 'image/jpeg', 'foto jpg');
   let badPath = false;
   try { telegramPhotoMeta('../secreto.jpg'); } catch { badPath = true; }

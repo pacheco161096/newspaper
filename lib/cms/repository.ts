@@ -231,32 +231,46 @@ export async function setCmsArticleStatus(id: string, status: ArticleStatus) {
   await recordRevision(id, status === 'published' ? 'published' : 'unpublished');
 }
 
+const FACEBOOK_WAIT_FOR_TELEGRAM_PHOTO_SQL = `not (
+  coalesce(hero_image_url, '') = ''
+  and exists (
+    select 1
+      from pipeline.report_submissions s
+      join pipeline.reports r on r.submission_id = s.id
+      join pipeline.report_assets asset on asset.report_id = r.id
+     where s.article_id = cms.articles.id
+       and asset.status = 'pending'
+  )
+)`;
+
 export type FacebookQueueArticle = {
   id: string;
   slug: string;
   title: string;
   summary: string;
   facebookExcerpt: string;
+  heroImageUrl: string | null;
   attempts: number;
 };
 
 export async function listFacebookQueue(limit = 4) {
   const result = await getPostgresPool().query<{
-    id: string; slug: string; title: string; summary: string; facebook_excerpt: string | null; facebook_attempts: number;
+    id: string; slug: string; title: string; summary: string; facebook_excerpt: string | null; hero_image_url: string | null; facebook_attempts: number;
   }>(
-    `select id, slug, title, summary, facebook_excerpt, facebook_attempts from cms.articles
+    `select id, slug, title, summary, facebook_excerpt, hero_image_url, facebook_attempts from cms.articles
       where status = 'published'
         and facebook_status in ('pending', 'failed')
         and ${FACEBOOK_CURRENT_DAY_SQL}
         and facebook_next_attempt_at <= now()
         and coalesce(trim(facebook_excerpt), trim(summary), '') <> ''
+        and ${FACEBOOK_WAIT_FOR_TELEGRAM_PHOTO_SQL}
       order by ${CRON_FACEBOOK_ORDER_SQL}
       limit $1`,
     [Math.min(Math.max(limit, 1), 8)],
   );
   return result.rows.map((row): FacebookQueueArticle => ({
     id: row.id, slug: row.slug, title: row.title, summary: row.summary,
-    facebookExcerpt: row.facebook_excerpt ?? '', attempts: row.facebook_attempts,
+    facebookExcerpt: row.facebook_excerpt ?? '', heroImageUrl: row.hero_image_url, attempts: row.facebook_attempts,
   }));
 }
 
@@ -284,7 +298,7 @@ export async function skipStaleFacebookArticles() {
 export async function claimArticlesForFacebook(limit = 4) {
   const safeLimit = Math.min(Math.max(limit, 1), 8);
   const result = await getPostgresPool().query<{
-    id: string; slug: string; title: string; summary: string; facebook_excerpt: string | null; facebook_attempts: number;
+    id: string; slug: string; title: string; summary: string; facebook_excerpt: string | null; hero_image_url: string | null; facebook_attempts: number;
   }>(
     `with candidates as (
        select id from cms.articles
@@ -293,6 +307,7 @@ export async function claimArticlesForFacebook(limit = 4) {
           and ${FACEBOOK_CURRENT_DAY_SQL}
           and facebook_next_attempt_at <= now()
           and coalesce(trim(facebook_excerpt), trim(summary), '') <> ''
+          and ${FACEBOOK_WAIT_FOR_TELEGRAM_PHOTO_SQL}
         order by ${CRON_FACEBOOK_ORDER_SQL}
         for update skip locked
         limit $1
@@ -301,7 +316,7 @@ export async function claimArticlesForFacebook(limit = 4) {
        facebook_attempts = facebook_attempts + 1,
        facebook_error = null
      from candidates where a.id = candidates.id
-     returning a.id, a.slug, a.title, a.summary, a.facebook_excerpt, a.facebook_attempts`,
+     returning a.id, a.slug, a.title, a.summary, a.facebook_excerpt, a.hero_image_url, a.facebook_attempts`,
     [safeLimit],
   );
   return result.rows.map((row): FacebookQueueArticle => ({
@@ -310,6 +325,7 @@ export async function claimArticlesForFacebook(limit = 4) {
     title: row.title,
     summary: row.summary,
     facebookExcerpt: row.facebook_excerpt ?? '',
+    heroImageUrl: row.hero_image_url,
     attempts: row.facebook_attempts,
   }));
 }

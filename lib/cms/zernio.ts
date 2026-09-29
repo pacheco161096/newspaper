@@ -53,11 +53,26 @@ export async function waitForPublicArticle(slug: string) {
   throw new Error('PUBLIC_URL_NOT_LIVE');
 }
 
+export function facebookMediaItem(imageUrl: string | null | undefined) {
+  const raw = imageUrl?.trim() ?? '';
+  if (!raw) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.hostname === 'api.telegram.org') return null;
+  return { type: 'image' as const, url: raw };
+}
+
 export async function publishToFacebook(input: {
   articleId: string;
   message: string;
   firstComment: string;
+  imageUrl?: string | null;
 }): Promise<ZernioPublishResult> {
+  const media = facebookMediaItem(input.imageUrl);
   const accountId = await resolveFacebookAccountId();
   const { status, body } = await zernioJson<{
     post?: { _id?: string; platforms?: Array<{ platformPostUrl?: string; status?: string }> };
@@ -69,6 +84,7 @@ export async function publishToFacebook(input: {
     headers: { 'x-request-id': `hola-vallarta-fb-${input.articleId}` },
     body: JSON.stringify({
       content: input.message,
+      ...(media ? { mediaItems: [media] } : {}),
       publishNow: true,
       timezone: 'America/Mexico_City',
       platforms: [{

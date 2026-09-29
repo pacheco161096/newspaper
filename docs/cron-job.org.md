@@ -59,7 +59,7 @@ POST .../api/cron/facebook?dryRun=1
 
 El clasificador no usa dryRun: procesa documentos `discovered` de verdad.
 
-Facebook **solo** publica si `GET /noticias/{slug}` responde 200. El post es el resumen + “Más información: continúa leyendo en el primer comentario.” El enlace de la nota va **solo** en el primer comentario.
+Facebook **solo** publica si `GET /noticias/{slug}` responde 200. El post es el resumen y, si ya hay imagen, la foto de la nota. “Más información: continúa leyendo en el primer comentario.” El enlace de la nota va **solo** en el primer comentario. Si la foto de Telegram todavía se está descargando, el post espera a la siguiente pasada.
 
 ## Reportes de Telegram
 
