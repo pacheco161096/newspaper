@@ -35,9 +35,18 @@ export type TelegramPhotoUpdate = {
   mediaGroupId: string | null;
 };
 
+export type TelegramCommandUpdate = {
+  updateId: number;
+  messageId: number;
+  chatId: string;
+  fromId: string;
+  command: 'enviar' | 'cancelar';
+};
+
 export type TelegramUpdateParse =
   | { kind: 'text'; update: TelegramTextUpdate }
   | { kind: 'photo'; update: TelegramPhotoUpdate }
+  | { kind: 'command'; update: TelegramCommandUpdate }
   | { kind: 'ignore'; updateId: number; reason: string }
   | { kind: 'invalid' };
 
@@ -195,6 +204,10 @@ export function parseTelegramUpdate(body: unknown): TelegramUpdateParse {
 
   const normalized = text.replaceAll('\u0000', '').trim();
   if (!normalized) return { kind: 'ignore', updateId, reason: 'empty_text' };
+  const command = normalized.match(/^\/(enviar|cancelar)(?:@[A-Za-z0-9_]+)?(?:\s|$)/i)?.[1]?.toLowerCase();
+  if (command === 'enviar' || command === 'cancelar') {
+    return { kind: 'command', update: { updateId, messageId, chatId, fromId, command } };
+  }
   if (normalized.startsWith('/')) return { kind: 'ignore', updateId, reason: 'command' };
   if (normalized.length > MAX_TEXT_LENGTH) return { kind: 'ignore', updateId, reason: 'text_too_long' };
 

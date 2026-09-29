@@ -1,5 +1,7 @@
-import { createTelegramPhotoReport, createTelegramReport, findReporterByTelegramUserId } from '../pipeline/reports';
-import type { CreateTelegramPhotoReportInput, CreateTelegramReportInput, CreateTelegramReportResult, TelegramReporter } from '../pipeline/reports';
+import { findReporterByTelegramUserId, telegramExternalMessageId } from '../pipeline/reports';
+import type { TelegramReporter } from '../pipeline/reports';
+import { cancelTelegramSubmission, finishTelegramSubmission, receiveTelegramMessage } from '../pipeline/submissions';
+import type { CancelTelegramSubmissionResult, FinishTelegramSubmissionResult, ReceiveTelegramMessageInput, ReceiveTelegramMessageResult } from '../pipeline/submissions';
 import { isAuthorizedTelegramWebhook } from './auth';
 import { sendMessage as deliverTelegramMessage } from './client';
 import { parseTelegramUpdate } from './updates';
@@ -7,24 +9,33 @@ import { parseTelegramUpdate } from './updates';
 const MAX_BODY_BYTES = 256 * 1024;
 
 export const TELEGRAM_COPY = {
-  received: '✅ Recibí tu información.',
+  textOpened: '✅ Recibí tu información. Cuando termines, envía /enviar.',
+  textAppended: '✅ Lo agregué a tu envío.',
   duplicate: '✅ Esta información ya había sido recibida.',
-  photoReceived: '✅ Recibí tu fotografía.',
+  photoOpened: '✅ Recibí tu fotografía. Cuando termines, envía /enviar.',
+  photoAppended: '✅ Agregué la fotografía a tu envío.',
   photoDuplicate: '✅ Esta fotografía ya había sido recibida.',
+  ready: '✅ Envío recibido. Quedó como borrador.',
+  needsText: 'Falta el texto del reporte.',
+  expired: 'Ese envío venció sin texto.',
+  cancelled: 'Envío cancelado.',
+  noSubmission: 'No tengo un envío abierto.',
   unauthorized: 'Este bot no está habilitado para esta cuenta.',
 } as const;
 
 export type TelegramWebhookDeps = {
   findReporterByTelegramUserId: (telegramUserId: string) => Promise<TelegramReporter | null>;
-  createTelegramReport: (input: CreateTelegramReportInput) => Promise<CreateTelegramReportResult>;
-  createTelegramPhotoReport: (input: CreateTelegramPhotoReportInput) => Promise<CreateTelegramReportResult>;
+  receiveTelegramMessage: (input: ReceiveTelegramMessageInput) => Promise<ReceiveTelegramMessageResult>;
+  finishTelegramSubmission: (reporterId: string, closeExternalMessageId?: string) => Promise<FinishTelegramSubmissionResult>;
+  cancelTelegramSubmission: (reporterId: string) => Promise<CancelTelegramSubmissionResult>;
   sendMessage: (input: { chatId: string; text: string }) => Promise<void>;
 };
 
 const defaultDeps: TelegramWebhookDeps = {
   findReporterByTelegramUserId,
-  createTelegramReport,
-  createTelegramPhotoReport,
+  receiveTelegramMessage,
+  finishTelegramSubmission,
+  cancelTelegramSubmission,
   sendMessage: ({ chatId, text }) => deliverTelegramMessage({ chatId, text }),
 };
 
@@ -117,11 +128,30 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
     return Response.json({ ok: true, result: 'unauthorized' });
   }
 
-  const isPhoto = parsed.kind === 'photo';
-  let saved: CreateTelegramReportResult;
+  if (parsed.kind === 'command') {
+    let result: FinishTelegramSubmissionResult | CancelTelegramSubmissionResult;
+    try {
+      result = parsed.update.command === 'cancelar'
+        ? await deps.cancelTelegramSubmission(reporter.id)
+        : await deps.finishTelegramSubmission(reporter.id, telegramExternalMessageId(update.chatId, update.messageId));
+    } catch (error) {
+      logTelegram('error', { ...logBase, reporter_id: reporter.id, result: 'db_error', error: safeErrorCode(error) });
+      return Response.json({ ok: false }, { status: 500 });
+    }
+    const reply = result === 'ready' ? TELEGRAM_COPY.ready
+      : result === 'needs_text' ? TELEGRAM_COPY.needsText
+        : result === 'expired' ? TELEGRAM_COPY.expired
+          : result === 'cancelled' ? TELEGRAM_COPY.cancelled
+            : TELEGRAM_COPY.noSubmission;
+    logTelegram('warn', { ...logBase, reporter_id: reporter.id, result, kind: parsed.update.command });
+    await confirm(deps, update.chatId, reply, { ...logBase, reporter_id: reporter.id });
+    return Response.json({ ok: true, result });
+  }
+
+  let saved: ReceiveTelegramMessageResult;
   try {
     if (parsed.kind === 'photo') {
-      saved = await deps.createTelegramPhotoReport({
+      saved = await deps.receiveTelegramMessage({
         reporterId: reporter.id,
         chatId: parsed.update.chatId,
         messageId: parsed.update.messageId,
@@ -130,11 +160,13 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
         mediaGroupId: parsed.update.mediaGroupId,
       });
     } else {
-      saved = await deps.createTelegramReport({
+      saved = await deps.receiveTelegramMessage({
         reporterId: reporter.id,
         chatId: parsed.update.chatId,
         messageId: parsed.update.messageId,
         rawText: parsed.update.text,
+        fileId: null,
+        mediaGroupId: null,
       });
     }
   } catch (error) {
@@ -142,11 +174,13 @@ export async function handleTelegramWebhook(request: Request, deps: TelegramWebh
     return Response.json({ ok: false }, { status: 500 });
   }
 
-  const created = saved.outcome === 'created';
-  logTelegram('warn', { ...logBase, reporter_id: reporter.id, result: saved.outcome, kind: isPhoto ? 'photo' : 'text' });
-  const reply = isPhoto
-    ? (created ? TELEGRAM_COPY.photoReceived : TELEGRAM_COPY.photoDuplicate)
-    : (created ? TELEGRAM_COPY.received : TELEGRAM_COPY.duplicate);
+  const isPhoto = parsed.kind === 'photo';
+  const reply = saved.outcome === 'duplicate'
+    ? (isPhoto ? TELEGRAM_COPY.photoDuplicate : TELEGRAM_COPY.duplicate)
+    : saved.placement === 'appended'
+      ? (isPhoto ? TELEGRAM_COPY.photoAppended : TELEGRAM_COPY.textAppended)
+      : (isPhoto ? TELEGRAM_COPY.photoOpened : TELEGRAM_COPY.textOpened);
+  logTelegram('warn', { ...logBase, reporter_id: reporter.id, result: saved.outcome === 'duplicate' ? 'duplicate' : saved.placement, kind: isPhoto ? 'photo' : 'text' });
   await confirm(deps, update.chatId, reply, { ...logBase, reporter_id: reporter.id });
-  return Response.json({ ok: true, result: saved.outcome });
+  return Response.json({ ok: true, result: saved.outcome === 'duplicate' ? 'duplicate' : 'created' });
 }

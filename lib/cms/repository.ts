@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { getPostgresPool } from '../server/postgres';
 import type { ArticleInput, ArticleStatus, CmsArticle, CmsAuthor } from './types';
 import { CRON_FACEBOOK_ORDER_SQL, FACEBOOK_CURRENT_DAY_SQL, LOCAL_ARTICLE_PRIORITY_SQL } from '../pipeline/sources';
@@ -142,8 +143,10 @@ function values(input: ArticleInput, authorId: string) {
     input.sourceUrl || null, input.status, authorId];
 }
 
-async function recordRevision(articleId: string, action: 'created' | 'updated' | 'published' | 'unpublished') {
-  await getPostgresPool().query(
+type Sql = { query: PoolClient['query'] };
+
+async function recordRevision(articleId: string, action: 'created' | 'updated' | 'published' | 'unpublished', db: Sql = getPostgresPool()) {
+  await db.query(
     `insert into cms.article_revisions (article_id, action, snapshot)
      select id, $2, to_jsonb(a) from cms.articles a where id = $1`, [articleId, action],
   );
@@ -166,9 +169,9 @@ export async function slugExists(slug: string, exceptId?: string) {
   return Boolean(result.rows[0]);
 }
 
-export async function createCmsArticle(input: ArticleInput) {
+export async function createCmsArticle(input: ArticleInput, db: Sql = getPostgresPool()) {
   const authorId = await resolveAuthorId(input.authorId);
-  const result = await getPostgresPool().query<{ id: string }>(
+  const result = await db.query<{ id: string }>(
     `insert into cms.articles (slug, category, title, summary, body_text, hero_image_url, image_alt,
       seo_title, seo_description, facebook_excerpt, source_name, source_url, status, author_id, published_at,
       event_id, source_document_id, facebook_status, facebook_next_attempt_at)
@@ -177,7 +180,7 @@ export async function createCmsArticle(input: ArticleInput) {
      returning id`,
     [...values(input, authorId), input.eventId ?? null, input.sourceDocumentId ?? null],
   );
-  await recordRevision(result.rows[0].id, input.status === 'published' ? 'published' : 'created');
+  await recordRevision(result.rows[0].id, input.status === 'published' ? 'published' : 'created', db);
   return result.rows[0].id;
 }
 

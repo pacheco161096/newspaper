@@ -1,6 +1,7 @@
 import { isAuthorizedTelegramWebhook } from '../lib/telegram/auth';
 import { sendMessage } from '../lib/telegram/client';
 import { telegramExternalMessageId } from '../lib/pipeline/reports';
+import { draftFromReporterTexts } from '../lib/pipeline/submissions';
 import { parseTelegramUpdate } from '../lib/telegram/updates';
 import { handleTelegramWebhook, TELEGRAM_COPY } from '../lib/telegram/webhook';
 import type { TelegramWebhookDeps } from '../lib/telegram/webhook';
@@ -39,11 +40,18 @@ function request(body: string, secret: string | null = SECRET) {
 const LARGE_FILE_ID = 'AgACAgIAAxkBAAIBYWlargephoto123456';
 const SMALL_FILE_ID = 'AgACAgIAAxkBAAIBYWsmallphoto123456';
 
-function deps(reporter: { id: string; status: string } | null, outcome: 'created' | 'duplicate' | 'throw' = 'created') {
+function deps(
+  reporter: { id: string; status: string } | null,
+  outcome: 'created' | 'duplicate' | 'throw' = 'created',
+  placement: 'opened' | 'appended' = 'opened',
+  finishResult: 'ready' | 'needs_text' | 'expired' | 'none' = 'none',
+  cancelResult: 'cancelled' | 'none' = 'none',
+) {
   const calls = {
     find: [] as string[],
-    create: [] as Array<{ reporterId: string; chatId: string; messageId: number; rawText: string }>,
-    photos: [] as Array<{ reporterId: string; chatId: string; messageId: number; rawText: string; fileId: string; mediaGroupId: string | null }>,
+    messages: [] as Array<{ reporterId: string; chatId: string; messageId: number; rawText: string; fileId: string | null; mediaGroupId: string | null }>,
+    finish: [] as string[],
+    cancel: [] as string[],
     send: [] as string[],
   };
   const doubles: TelegramWebhookDeps = {
@@ -51,17 +59,19 @@ function deps(reporter: { id: string; status: string } | null, outcome: 'created
       calls.find.push(telegramUserId);
       return reporter;
     },
-    async createTelegramReport(input) {
-      calls.create.push(input);
+    async receiveTelegramMessage(input) {
+      calls.messages.push(input);
       if (outcome === 'throw') throw Object.assign(new Error('insert failed'), { code: '08006' });
       if (outcome === 'duplicate') return { outcome: 'duplicate' };
-      return { outcome: 'created', id: '22222222-2222-4222-8222-222222222222' };
+      return { outcome: 'created', placement, reportId: '22222222-2222-4222-8222-222222222222' };
     },
-    async createTelegramPhotoReport(input) {
-      calls.photos.push(input);
-      if (outcome === 'throw') throw Object.assign(new Error('insert failed'), { code: '08006' });
-      if (outcome === 'duplicate') return { outcome: 'duplicate' };
-      return { outcome: 'created', id: '33333333-3333-4333-8333-333333333333' };
+    async finishTelegramSubmission(reporterId) {
+      calls.finish.push(reporterId);
+      return finishResult;
+    },
+    async cancelTelegramSubmission(reporterId) {
+      calls.cancel.push(reporterId);
+      return cancelResult;
     },
     async sendMessage(input) {
       calls.send.push(input.text);
@@ -70,8 +80,8 @@ function deps(reporter: { id: string; status: string } | null, outcome: 'created
   return { calls, doubles };
 }
 
-async function post(body: unknown, options: { secret?: string | null; reporter?: { id: string; status: string } | null; outcome?: 'created' | 'duplicate' | 'throw' } = {}) {
-  const { calls, doubles } = deps(options.reporter === undefined ? { id: REPORTER_ID, status: 'active' } : options.reporter, options.outcome ?? 'created');
+async function post(body: unknown, options: { secret?: string | null; reporter?: { id: string; status: string } | null; outcome?: 'created' | 'duplicate' | 'throw'; placement?: 'opened' | 'appended'; finishResult?: 'ready' | 'needs_text' | 'expired' | 'none'; cancelResult?: 'cancelled' | 'none' } = {}) {
+  const { calls, doubles } = deps(options.reporter === undefined ? { id: REPORTER_ID, status: 'active' } : options.reporter, options.outcome ?? 'created', options.placement ?? 'opened', options.finishResult ?? 'none', options.cancelResult ?? 'none');
   const response = await handleTelegramWebhook(
     request(typeof body === 'string' ? body : JSON.stringify(body), options.secret === undefined ? SECRET : options.secret),
     doubles,
@@ -103,25 +113,25 @@ async function main() {
   assert(invalidJson.status === 400 && invalidJson.calls.find.length === 0, 'JSON invalido');
 
   const withoutMessage = await post({ update_id: 4, callback_query: { id: '1' } });
-  assert(withoutMessage.status === 200 && withoutMessage.json.result === 'ignored' && withoutMessage.calls.create.length === 0, 'update sin message');
+  assert(withoutMessage.status === 200 && withoutMessage.json.result === 'ignored' && withoutMessage.calls.messages.length === 0, 'update sin message');
 
   const unknown = await post(textUpdate('Prueba de reporte'), { reporter: null });
-  assert(unknown.status === 200 && unknown.json.result === 'unauthorized' && unknown.calls.create.length === 0 && unknown.calls.send[0] === TELEGRAM_COPY.unauthorized, 'usuario desconocido');
+  assert(unknown.status === 200 && unknown.json.result === 'unauthorized' && unknown.calls.messages.length === 0 && unknown.calls.send[0] === TELEGRAM_COPY.unauthorized, 'usuario desconocido');
 
   const suspended = await post(textUpdate('Prueba de reporte'), { reporter: { id: REPORTER_ID, status: 'suspended' } });
-  assert(suspended.status === 200 && suspended.calls.create.length === 0 && suspended.calls.send[0] === TELEGRAM_COPY.unauthorized, 'reporter suspendido');
+  assert(suspended.status === 200 && suspended.calls.messages.length === 0 && suspended.calls.send[0] === TELEGRAM_COPY.unauthorized, 'reporter suspendido');
 
   const active = await post(textUpdate('Prueba de reporte'));
-  assert(active.status === 200 && active.json.result === 'created' && active.calls.find[0] === '555' && active.calls.create[0]?.reporterId === REPORTER_ID && active.calls.send[0] === TELEGRAM_COPY.received, 'reporter activo');
+  assert(active.status === 200 && active.json.result === 'created' && active.calls.find[0] === '555' && active.calls.messages[0]?.reporterId === REPORTER_ID && active.calls.send[0] === TELEGRAM_COPY.textOpened, 'reporter activo');
 
   const created = await post(textUpdate('Prueba de reporte'));
-  assert(created.json.result === 'created' && created.calls.create[0]?.rawText === 'Prueba de reporte' && created.calls.create[0]?.chatId === '555' && created.calls.create[0]?.messageId === 7, 'mensaje nuevo');
+  assert(created.json.result === 'created' && created.calls.messages[0]?.rawText === 'Prueba de reporte' && created.calls.messages[0]?.chatId === '555' && created.calls.messages[0]?.messageId === 7, 'mensaje nuevo');
 
   const duplicate = await post(textUpdate('Prueba de reporte'), { outcome: 'duplicate' });
   assert(duplicate.status === 200 && duplicate.json.result === 'duplicate' && duplicate.calls.send[0] === TELEGRAM_COPY.duplicate, 'mensaje duplicado');
 
   const empty = await post(textUpdate('   '));
-  assert(empty.status === 200 && empty.json.reason === 'empty_text' && empty.calls.find.length === 0 && empty.calls.create.length === 0, 'texto vacio');
+  assert(empty.status === 200 && empty.json.reason === 'empty_text' && empty.calls.find.length === 0 && empty.calls.messages.length === 0, 'texto vacio');
 
   const wrongSecret = await post(textUpdate('Prueba de reporte'), { secret: 'no-coincide' });
   assert(wrongSecret.status === 401 && wrongSecret.calls.find.length === 0, 'webhook rechaza secret incorrecto');
@@ -140,26 +150,52 @@ async function main() {
       from: { id: 555 },
     },
   });
-  assert(photo.status === 200 && photo.json.result === 'created' && photo.calls.create.length === 0 && photo.calls.photos[0]?.fileId === LARGE_FILE_ID && photo.calls.photos[0]?.rawText === 'Incendio en el centro' && photo.calls.photos[0]?.mediaGroupId === 'album-1' && photo.calls.send[0] === TELEGRAM_COPY.photoReceived, 'foto guarda el file_id grande');
+  assert(photo.status === 200 && photo.json.result === 'created' && photo.calls.messages[0]?.fileId === LARGE_FILE_ID && photo.calls.messages[0]?.rawText === 'Incendio en el centro' && photo.calls.messages[0]?.mediaGroupId === 'album-1' && photo.calls.send[0] === TELEGRAM_COPY.photoOpened, 'foto guarda el file_id grande');
 
   const photoOnly = await post({ update_id: 10, message: { message_id: 4, photo: [{ file_id: LARGE_FILE_ID, width: 800, height: 600 }], chat: { id: 555, type: 'private' }, from: { id: 555 } } });
-  assert(photoOnly.json.result === 'created' && photoOnly.calls.photos[0]?.rawText === '', 'foto sin caption');
+  assert(photoOnly.json.result === 'created' && photoOnly.calls.messages[0]?.rawText === '' && photoOnly.calls.messages[0]?.fileId === LARGE_FILE_ID, 'foto sin caption');
 
   const duplicatePhoto = await post({ update_id: 11, message: { message_id: 5, photo: [{ file_id: LARGE_FILE_ID, width: 800, height: 600 }], chat: { id: 555, type: 'private' }, from: { id: 555 } } }, { outcome: 'duplicate' });
   assert(duplicatePhoto.status === 200 && duplicatePhoto.json.result === 'duplicate' && duplicatePhoto.calls.send[0] === TELEGRAM_COPY.photoDuplicate, 'foto duplicada');
 
   const unknownPhoto = await post({ update_id: 12, message: { message_id: 6, photo: [{ file_id: LARGE_FILE_ID, width: 800, height: 600 }], chat: { id: 555, type: 'private' }, from: { id: 555 } } }, { reporter: null });
-  assert(unknownPhoto.status === 200 && unknownPhoto.calls.photos.length === 0 && unknownPhoto.calls.send[0] === TELEGRAM_COPY.unauthorized, 'foto de usuario desconocido');
+  assert(unknownPhoto.status === 200 && unknownPhoto.calls.messages.length === 0 && unknownPhoto.calls.send[0] === TELEGRAM_COPY.unauthorized, 'foto de usuario desconocido');
 
   const video = await post({ update_id: 13, message: { message_id: 8, video: { file_id: LARGE_FILE_ID }, chat: { id: 555, type: 'private' }, from: { id: 555 } } });
-  assert(video.status === 200 && video.json.reason === 'video' && video.calls.photos.length === 0 && video.calls.create.length === 0, 'video no crea reporte');
+  assert(video.status === 200 && video.json.reason === 'video' && video.calls.messages.length === 0, 'video no crea reporte');
 
   const shortFileId = await post({ update_id: 14, message: { message_id: 9, photo: [{ file_id: 'abc' }], chat: { id: 555, type: 'private' }, from: { id: 555 } } });
-  assert(shortFileId.status === 200 && shortFileId.json.reason === 'invalid_photo' && shortFileId.calls.photos.length === 0, 'file_id invalido');
+  assert(shortFileId.status === 200 && shortFileId.json.reason === 'invalid_photo' && shortFileId.calls.messages.length === 0, 'file_id invalido');
+
+  const appended = await post(textUpdate('Otro dato'), { placement: 'appended' });
+  assert(appended.calls.send[0] === TELEGRAM_COPY.textAppended && appended.calls.messages.length === 1, 'texto agregado al envio');
+
+  const enviar = await post(textUpdate('/enviar'), { finishResult: 'ready' });
+  assert(enviar.status === 200 && enviar.json.result === 'ready' && enviar.calls.messages.length === 0 && enviar.calls.finish[0] === REPORTER_ID && enviar.calls.send[0] === TELEGRAM_COPY.ready, 'enviar cierra con texto');
+
+  const enviarSinTexto = await post(textUpdate('/enviar@HolaVallartaNoticiasBot'), { finishResult: 'needs_text' });
+  assert(enviarSinTexto.calls.messages.length === 0 && enviarSinTexto.calls.send[0] === TELEGRAM_COPY.needsText, 'enviar sin texto');
+
+  const cancelar = await post(textUpdate('/cancelar'), { cancelResult: 'cancelled' });
+  assert(cancelar.json.result === 'cancelled' && cancelar.calls.cancel[0] === REPORTER_ID && cancelar.calls.send[0] === TELEGRAM_COPY.cancelled, 'cancelar');
+
+  const sinEnvio = await post(textUpdate('/enviar'), { finishResult: 'none' });
+  assert(sinEnvio.calls.send[0] === TELEGRAM_COPY.noSubmission, 'enviar sin envio');
+
+  const start = await post(textUpdate('/start'));
+  assert(start.json.reason === 'command' && start.calls.messages.length === 0 && start.calls.finish.length === 0, 'otro comando se ignora');
+
+  const comandoAjeno = await post(textUpdate('/cancelar'), { reporter: null, cancelResult: 'cancelled' });
+  assert(comandoAjeno.calls.cancel.length === 0 && comandoAjeno.calls.send[0] === TELEGRAM_COPY.unauthorized, 'comando de usuario desconocido');
+
+  const parsedCommand = parseTelegramUpdate(textUpdate('/enviar@bot'));
+  assert(parsedCommand.kind === 'command' && parsedCommand.update.command === 'enviar', 'parser de enviar');
 
   const parsed = parseTelegramUpdate(textUpdate('  Hola  '));
   assert(parsed.kind === 'text' && parsed.update.text === 'Hola' && parsed.update.username === 'ana' && parsed.update.fromId === '555', 'parser de texto');
   assert(telegramExternalMessageId('555', 7) === '555:7', 'external_message_id');
+  const draft = draftFromReporterTexts(['  Incendio en el centro  ', '', 'Hay dos heridos.']);
+  assert(draft.title === 'Incendio en el centro' && draft.summary.startsWith('Incendio en el centro') && draft.body.includes('Hay dos heridos.'), 'borrador usa el texto crudo');
 
   const dbError = await post(textUpdate('Prueba de reporte'), { outcome: 'throw' });
   assert(dbError.status === 500 && dbError.calls.send.length === 0, 'error de postgres');
@@ -167,7 +203,7 @@ async function main() {
   const { calls, doubles } = deps({ id: REPORTER_ID, status: 'active' });
   doubles.sendMessage = async () => { throw new Error('TELEGRAM_SEND_FAILED:403'); };
   const sent = await handleTelegramWebhook(request(JSON.stringify(textUpdate('Prueba de reporte'))), doubles);
-  assert(sent.status === 200 && calls.create.length === 1, 'fallo de Telegram no borra el reporte');
+  assert(sent.status === 200 && calls.messages.length === 1, 'fallo de Telegram no borra el reporte');
 
   const logs: string[] = [];
   console.warn = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };

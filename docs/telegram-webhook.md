@@ -26,18 +26,19 @@ Sin secreto, vacío o distinto, la ruta responde `401` sin decir cuál de los tr
 
 1. Compara el header con `timingSafeEqual`.
 2. Lee como máximo 256 KB y exige JSON con `update_id`.
-3. Persiste un mensaje de texto o una fotografía en un chat privado y de un humano. Ignora video, audio, documento, ediciones y cualquier texto que empiece por `/`.
+3. Persiste un mensaje de texto o una fotografía en un chat privado y de un humano. Ignora video, audio, documento y ediciones. De los comandos solo atiende `/enviar` y `/cancelar`.
 4. Busca `pipeline.reporters.telegram_user_id`. La identidad es ese número, no el `@username`.
 5. Si el reportero no existe o no está `active`, no inserta y responde en el chat: `Este bot no está habilitado para esta cuenta.`
-6. Inserta `channel = telegram`, `status = received`, `raw_text` y `external_message_id = {chat_id}:{message_id}`. En una foto, `raw_text` es el caption, o vacío si no trae texto.
-7. De la foto guarda un solo `file_id`, el de mayor resolución, en `pipeline.report_assets` con `kind = photo` y `status = pending`. No llama a `getFile` ni baja el archivo.
-8. Si esa pareja chat + mensaje ya existe, no crea otra fila. El reintento tampoco duplica el `file_id`.
-9. Confirma `✅ Recibí tu información.` o `✅ Recibí tu fotografía.` Si ya existía: `✅ Esta información ya había sido recibida.` o `✅ Esta fotografía ya había sido recibida.`
-10. Si Postgres falla, responde `500` para que Telegram reintente. Si `sendMessage` falla, el reporte ya guardado se conserva y la ruta igual responde `200`.
+6. Inserta `channel = telegram`, `status = received`, `raw_text` y `external_message_id = {chat_id}:{message_id}`. En una foto, `raw_text` es el caption, o vacío si no trae texto. El reporte queda ligado a un envío en `pipeline.report_submissions`.
+7. Si el reportero ya tiene un envío `open` o `incomplete` que no venció, el mensaje se agrega. Si no, se abre uno nuevo por 15 minutos. Cada mensaje nuevo renueva ese plazo.
+8. De la foto guarda un solo `file_id`, el de mayor resolución, en `pipeline.report_assets` con `kind = photo` y `status = pending`. No llama a `getFile` ni baja el archivo. Las fotos de un álbum comparten `media_group_id` y entran al mismo envío.
+9. Si esa pareja chat + mensaje ya existe, no crea otra fila ni mueve el envío.
+10. `/enviar` con texto cierra el envío y crea un borrador: `pipeline.news_events`, `pipeline.report_contributions` y `cms.articles` en `unpublished`. El titular sale de la primera línea. No llama a OpenAI, no publica y no pone imagen. Si solo hay fotos, queda `incomplete`. `/cancelar` lo marca `cancelled`. Repetir el mismo `/enviar` no crea otra nota.
+11. Confirma la recepción, el agregado, el cierre o la cancelación con un texto corto. Si Postgres falla, responde `500`. Si `sendMessage` falla, lo ya guardado se conserva y la ruta responde `200`.
 
-`edited_message`, `channel_post` y `callback_query` responden `200` y no crean reporte. Un álbum llega como un mensaje por foto; todavía no se agrupan.
+`edited_message`, `channel_post` y `callback_query` responden `200` y no crean reporte. Esta fase no redacta ni publica.
 
-La llave única `(channel, external_message_id)` sale de `001_reporting_foundation.sql`. Las fotos necesitan `013_report_assets.sql`:
+Hacen falta `013_report_assets.sql`, `014_report_submissions.sql` y `015_submission_drafts.sql`:
 
 ```bash
 npm run db:migrate:production
