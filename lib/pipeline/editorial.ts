@@ -146,6 +146,54 @@ function parseDraft(raw: string): EditorialDraft {
   return draft;
 }
 
+export function parseReporterDraft(raw: string): EditorialDraft {
+  let parsed: EditorialDraft;
+  try {
+    parsed = JSON.parse(raw) as EditorialDraft;
+  } catch {
+    throw new Error('EDITORIAL_JSON_INCOMPLETE');
+  }
+  if (!parsed.title?.trim() || !parsed.summary?.trim() || !parsed.bodyText?.trim()) throw new Error('EDITORIAL_JSON_INCOMPLETE');
+  const draft = scrubDraft(parsed);
+  const blob = `${draft.title ?? ''}\n${draft.summary ?? ''}\n${draft.bodyText ?? ''}`;
+  if (STUB_TITLE.test(blob) || (draft.bodyText ?? '').trim().length < 80) throw new Error('EDITORIAL_INSUFFICIENT_FACTS');
+  return draft;
+}
+
+export function shouldRewriteReporterArticle(status: 'published' | 'unpublished', editorialStatus: string) {
+  return status === 'unpublished' && (editorialStatus === 'pending' || editorialStatus === 'processing');
+}
+
+export async function draftReporterNote(text: string): Promise<EditorialDraft> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY_MISSING');
+  const source = text.trim().slice(0, 12_000);
+  if (source.length < 20) throw new Error('EDITORIAL_INSUFFICIENT_FACTS');
+  const raw = await openaiJsonCompletion({
+    apiKey,
+    model: pipelineModel(process.env.OPENAI_EDITORIAL_MODEL, 'gpt-5.6-luna'),
+    timeoutMs: 25_000,
+    temperature: 0.2,
+    reasoningEffort: 'none',
+    purpose: 'editorial',
+    system: SYSTEM_PROMPT,
+    user: JSON.stringify({
+      instruction: 'El insumo es un parte propio de un reportero, no una nota de otro medio. Reescríbelo solo con los hechos que contiene. Prohibido inventar o completar huecos.',
+      report: source,
+      jsonContract: {
+        publish: false, needsReview: true, category: 'jalisco', title: '',
+        headlineCandidates: { informative: '', consequence: '', curiosity: '', tension: '', local: '', selected: 'local', selectionReason: '' },
+        summary: '', bodyText: '', seoTitle: '', seoDescription: '', facebookExcerpt: '',
+        sourceName: null, sourceUrl: null, heroImageUrl: null,
+        facts: { what: '', who: [], where: '', when: '', confirmed: [], unconfirmed: [], missing: [], sensitive: [] },
+        scores: { relevance: 70, localInterest: 70, novelty: 70, readerInterest: 70, reliability: 70, originality: 70 },
+        quality: { headlineTrue: true, headlineNotMisleading: true, writtenFromScratch: true, noCopiedParagraphs: true, quotesAttributed: true, dataMatchesSources: true, factsVsClaims: true, noUnprovenAccusations: true, noUnnecessaryPersonalData: true, figuresChecked: true, placeIdentified: true, dateIdentified: true, sourceIndicated: true, imageRightsOk: true, addsValue: true, duplicateHandled: true },
+      },
+    }),
+  });
+  return parseReporterDraft(raw);
+}
+
 export async function draftEditorial(document: EditorialDocument): Promise<EditorialDraft> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY_MISSING');

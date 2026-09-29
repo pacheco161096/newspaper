@@ -12,7 +12,7 @@ No uses GET. Timeout del job: 60 segundos o más (Vercel corta a 60 s).
 
 La redacción requiere `OPENAI_API_KEY` en Vercel. Facebook requiere `ZERNIO_API_KEY` (y opcional `ZERNIO_FACEBOOK_ACCOUNT_ID` si hay más de una página).
 
-## Jobs a crear (8)
+## Jobs a crear (9)
 
 Todos cada **30 minutos**.
 
@@ -26,6 +26,7 @@ Todos cada **30 minutos**.
 | HV resolver eventos | `/api/cron/resolve` | cada **15 min** | Nuevo, duplicado o complemento |
 | HV redacción editorial | `/api/cron/editorial` | cada **15 min** | Redacta hasta 4 notas en paralelo |
 | HV Facebook Zernio | `/api/cron/facebook` | cada **15 min** | Publica texto; enlace en el primer comentario |
+| HV reportes Telegram | `/api/cron/reports` | cada **15 min** | Descarga la foto y redacta el borrador. No publica |
 
 Las colas de clasificar, resolver, redactar y Facebook **solo procesan notas cuya fecha de publicación en la fuente es el día en curso** (`America/Mexico_City`). Lo de días anteriores no se descubre, no se redacta y no se publica.
 
@@ -40,6 +41,7 @@ https://hola-vallarta.vercel.app/api/cron/classify
 https://hola-vallarta.vercel.app/api/cron/resolve
 https://hola-vallarta.vercel.app/api/cron/editorial
 https://hola-vallarta.vercel.app/api/cron/facebook
+https://hola-vallarta.vercel.app/api/cron/reports
 ```
 
 Zona horaria: `America/Mexico_City`.
@@ -59,6 +61,6 @@ El clasificador no usa dryRun: procesa documentos `discovered` de verdad.
 
 Facebook **solo** publica si `GET /noticias/{slug}` responde 200. El post es el resumen + “Más información: continúa leyendo en el primer comentario.” El enlace de la nota va **solo** en el primer comentario.
 
-## Qué no va todavía
+## Reportes de Telegram
 
-Telegram no usa cron.
+`/api/cron/reports` pide `BLOB_READ_WRITE_TOKEN` para la foto y `OPENAI_API_KEY` para reescribir. La nota sale de ese cron todavía en `unpublished`, salvo que el editor ya la haya publicado: en ese caso solo llena la imagen vacía.

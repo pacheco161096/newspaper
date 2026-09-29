@@ -74,6 +74,55 @@ export async function getWebhookInfo() {
   return payload.result ?? {};
 }
 
+const TELEGRAM_FILE_PATH = /^[A-Za-z0-9_./-]{1,256}$/;
+const MAX_TELEGRAM_FILE_BYTES = 20 * 1024 * 1024;
+
+export function telegramPhotoMeta(filePath: string) {
+  const clean = filePath.trim();
+  if (!TELEGRAM_FILE_PATH.test(clean) || clean.includes('..')) throw new Error('TELEGRAM_FILE_PATH_INVALID');
+  const extension = clean.split('.').pop()?.toLowerCase() ?? '';
+  if (extension === 'jpg' || extension === 'jpeg') return { extension: 'jpg', contentType: 'image/jpeg' };
+  if (extension === 'png') return { extension: 'png', contentType: 'image/png' };
+  if (extension === 'webp') return { extension: 'webp', contentType: 'image/webp' };
+  throw new Error('TELEGRAM_FILE_TYPE_UNSUPPORTED');
+}
+
+export async function downloadTelegramFile(fileId: string) {
+  if (!/^[\x21-\x7E]{16,512}$/.test(fileId)) throw new Error('TELEGRAM_FILE_ID_INVALID');
+  const token = readBotToken();
+  let info: Response;
+  try {
+    info = await fetch(`${TELEGRAM_API_ORIGIN}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new Error('TELEGRAM_GET_FILE_FAILED');
+  }
+  let payload: { ok?: boolean; result?: { file_path?: string; file_size?: number } };
+  try {
+    payload = await info.json() as { ok?: boolean; result?: { file_path?: string; file_size?: number } };
+  } catch {
+    throw new Error('TELEGRAM_GET_FILE_FAILED');
+  }
+  if (!info.ok || payload.ok !== true || !payload.result?.file_path) throw new Error('TELEGRAM_GET_FILE_FAILED');
+  if ((payload.result.file_size ?? 0) > MAX_TELEGRAM_FILE_BYTES) throw new Error('TELEGRAM_FILE_TOO_LARGE');
+  const meta = telegramPhotoMeta(payload.result.file_path);
+  let file: Response;
+  try {
+    file = await fetch(`${TELEGRAM_API_ORIGIN}/file/bot${token}/${payload.result.file_path}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw new Error('TELEGRAM_DOWNLOAD_FAILED');
+  }
+  if (!file.ok) throw new Error('TELEGRAM_DOWNLOAD_FAILED');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_TELEGRAM_FILE_BYTES) throw new Error('TELEGRAM_FILE_TOO_LARGE');
+  return { bytes, ...meta };
+}
+
 export async function sendMessage({ chatId, text, options }: SendMessageInput) {
   if (typeof text !== 'string' || !text || text.length > 4096) throw new Error('TELEGRAM_SEND_FAILED');
   const token = readBotToken();

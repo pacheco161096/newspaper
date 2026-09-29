@@ -48,9 +48,10 @@ CRON_SECRET
 NEXT_PUBLIC_SITE_URL=https://holavallarta.mx
 TELEGRAM_BOT_TOKEN
 TELEGRAM_WEBHOOK_SECRET
+BLOB_READ_WRITE_TOKEN
 ```
 
-`TELEGRAM_BOT_TOKEN` y `TELEGRAM_WEBHOOK_SECRET` solo se leen en el servidor. No uses el prefijo `NEXT_PUBLIC_`. El webhook y la prueba local están en [docs/telegram-webhook.md](docs/telegram-webhook.md).
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` y `BLOB_READ_WRITE_TOKEN` solo se leen en el servidor. No uses el prefijo `NEXT_PUBLIC_`. El webhook y la prueba local están en [docs/telegram-webhook.md](docs/telegram-webhook.md).
 
 Generar el hash de contraseña con:
 

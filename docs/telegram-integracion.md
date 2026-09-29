@@ -2,7 +2,7 @@
 
 Análisis del proyecto Hola Vallarta para recibir noticias de reporteros por un bot de Telegram, reutilizando el pipeline y el CMS que ya existen.
 
-Las fases 1 a 5 ya están implementadas: webhook, texto, `file_id`, envío y borrador sin publicar. La operación está en [telegram-webhook.md](./telegram-webhook.md). Este documento sigue siendo el análisis: la descarga del archivo, la IA y la publicación no están hechas.
+Las fases 1 a 7 ya están implementadas: webhook, texto, `file_id`, envío, borrador, cron de fotos y redacción sin publicar. La operación está en [telegram-webhook.md](./telegram-webhook.md). Este documento sigue siendo el análisis: la publicación automática no está hecha.
 
 Fecha: 24 de septiembre de 2026.
 

@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@types/pg": "^8.23.1",
+    "@vercel/blob": "^2.8.0",
     "@vercel/functions": "^3.9.9",
     "cheerio": "^1.2.0",
     "fast-xml-parser": "^5.11.1",

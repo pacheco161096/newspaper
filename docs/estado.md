@@ -42,7 +42,7 @@ Cron → descubrir → guardar fuente → clasificar → resolver evento/duplica
 | Base | PostgreSQL (`pg`), esquemas `cms` y `pipeline` |
 | Producción | Neon (pool para la app, directo para migraciones) |
 | Colas / cron | cron-job.org → `POST /api/cron/*` |
-| Telegram | `/enviar` deja un borrador sin publicar. Sin descarga ni IA |
+| Telegram | `/enviar` deja el borrador. Un cron descarga la foto y redacta si sigue sin publicar |
 
 ### Sitio público
 
@@ -94,7 +94,7 @@ Duplicados: `(source_key, external_id)` + resolver por titular (más estricto en
 - [ ] Conectar `holavallarta.mx`.
 - [ ] Cambiar contraseña temporal del CMS.
 - [ ] GA4 y Search Console.
-- [ ] Bot de Telegram: `/enviar` crea un borrador `unpublished`. Faltan descarga de fotos, IA y publicación. Ver [telegram-webhook.md](./telegram-webhook.md).
+- [ ] Bot de Telegram: el cron descarga la foto y redacta el borrador. Publicar sigue siendo manual. Hace falta `BLOB_READ_WRITE_TOKEN`. Ver [telegram-webhook.md](./telegram-webhook.md).
 
 ## Decisiones ya cerradas
 

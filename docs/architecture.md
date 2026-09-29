@@ -18,7 +18,7 @@ La tabla `report_contributions` es el libro de atribución y pago. Publicar, act
 
 ## Segundo MVP: Telegram
 
-El webhook `POST /api/telegram/webhook` guarda cada mensaje en `pipeline.reports` y lo cuelga de un envío en `pipeline.report_submissions`. El `file_id` de cada fotografía va a `pipeline.report_assets`. `/enviar`, si hay texto, crea un `news_event`, las contribuciones y un `cms.articles` en `unpublished` con el texto crudo. Todavía no descarga el archivo, no redacta con IA y no publica. Operación: [telegram-webhook.md](./telegram-webhook.md). El sitio no depende del bot.
+El webhook `POST /api/telegram/webhook` guarda cada mensaje en `pipeline.reports` y lo cuelga de un envío en `pipeline.report_submissions`. El `file_id` de cada fotografía va a `pipeline.report_assets`. `/enviar`, si hay texto, crea un `news_event`, las contribuciones y un `cms.articles` en `unpublished` con el texto crudo. `POST /api/cron/reports` copia la foto a Blob, pone la URL en `hero_image_url` y reescribe la nota si sigue sin publicar. Operación: [telegram-webhook.md](./telegram-webhook.md). El sitio no depende del bot.
 
 ## Integraciones pendientes
 

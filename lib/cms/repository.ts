@@ -205,6 +205,18 @@ export async function updateCmsArticle(id: string, input: ArticleInput) {
   await recordRevision(id, action);
 }
 
+export async function setCmsArticleHero(id: string, heroImageUrl: string, imageAlt: string) {
+  const result = await getPostgresPool().query<{ id: string }>(
+    `update cms.articles
+        set hero_image_url = $2, image_alt = $3, updated_at = now()
+      where id = $1 and (hero_image_url is null or hero_image_url = '')
+      returning id`,
+    [id, heroImageUrl, imageAlt],
+  );
+  if (result.rows[0]) await recordRevision(id, 'updated');
+  return Boolean(result.rows[0]);
+}
+
 export async function setCmsArticleStatus(id: string, status: ArticleStatus) {
   await getPostgresPool().query(
     `update cms.articles set status=$2,

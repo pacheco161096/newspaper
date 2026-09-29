@@ -1,7 +1,10 @@
 import { isAuthorizedTelegramWebhook } from '../lib/telegram/auth';
 import { sendMessage } from '../lib/telegram/client';
 import { telegramExternalMessageId } from '../lib/pipeline/reports';
+import { parseReporterDraft, shouldRewriteReporterArticle } from '../lib/pipeline/editorial';
+import { reporterErrorRetries } from '../lib/pipeline/report-processing';
 import { draftFromReporterTexts } from '../lib/pipeline/submissions';
+import { telegramPhotoMeta } from '../lib/telegram/client';
 import { parseTelegramUpdate } from '../lib/telegram/updates';
 import { handleTelegramWebhook, TELEGRAM_COPY } from '../lib/telegram/webhook';
 import type { TelegramWebhookDeps } from '../lib/telegram/webhook';
@@ -196,6 +199,14 @@ async function main() {
   assert(telegramExternalMessageId('555', 7) === '555:7', 'external_message_id');
   const draft = draftFromReporterTexts(['  Incendio en el centro  ', '', 'Hay dos heridos.']);
   assert(draft.title === 'Incendio en el centro' && draft.summary.startsWith('Incendio en el centro') && draft.body.includes('Hay dos heridos.'), 'borrador usa el texto crudo');
+  assert(telegramPhotoMeta('photos/file_1.jpg').contentType === 'image/jpeg', 'foto jpg');
+  let badPath = false;
+  try { telegramPhotoMeta('../secreto.jpg'); } catch { badPath = true; }
+  assert(badPath, 'ruta de foto invalida');
+  const rewritten = parseReporterDraft(JSON.stringify({ title: 'Incendio en el centro', summary: 'Hay dos heridos.', bodyText: 'Un incendio en el centro dejó dos heridos. Los equipos siguen en el lugar y no hay una causa confirmada.'.padEnd(80, '.') }));
+  assert(rewritten.title === 'Incendio en el centro' && (rewritten.bodyText ?? '').length >= 80, 'redaccion de reportero');
+  assert(shouldRewriteReporterArticle('unpublished', 'processing') && !shouldRewriteReporterArticle('published', 'processing'), 'no reescribe una nota ya publicada');
+  assert(!reporterErrorRetries('EDITORIAL_INSUFFICIENT_FACTS') && reporterErrorRetries('BLOB_READ_WRITE_TOKEN_MISSING'), 'reintento de redacción');
 
   const dbError = await post(textUpdate('Prueba de reporte'), { outcome: 'throw' });
   assert(dbError.status === 500 && dbError.calls.send.length === 0, 'error de postgres');
